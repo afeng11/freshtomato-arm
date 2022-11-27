@@ -2642,7 +2642,6 @@ void start_services(void)
 #ifdef TCONFIG_IRQBALANCE
 	start_irqbalance();
 #endif
-	start_upnp();
 }
 
 void stop_services(void)
@@ -2705,7 +2704,6 @@ void stop_services(void)
 #ifdef TCONFIG_IRQBALANCE
 	stop_irqbalance();
 #endif
-	stop_upnp();
 }
 
 /* nvram "action_service" is: "service-action[-modifier]"
@@ -3376,8 +3374,6 @@ TOP:
 	if ((strcmp(service, "ftpd") == 0) || (strcmp(service, "vsftpd") == 0)) {
 		if (act_stop) stop_ftpd();
 		setup_conntrack();
-		stop_firewall();
-		start_firewall(); /* always restarted */
 		if (act_start) start_ftpd(1); /* force (re)start */
 		goto CLEAR;
 	}
@@ -3507,7 +3503,7 @@ static void do_service(const char *name, const char *action, int user)
 	nvram_set("action_service", s); /* set new service to execute (for exec_service) */
 
 	if (n < 190) /* log only above 1 sec */
-		logmsg(LOG_DEBUG, "*** %s: waited %d second(s) for 'action_service' to be empty [%s] --> [%s]", __FUNCTION__, ((200 - n) / 10), t, s);
+		logmsg(LOG_DEBUG, "*** %s: waited %d second(s) for 'action_service' to be empty [%s] - [%s]", __FUNCTION__, ((200 - n) / 10), t, s);
 
 	logmsg(LOG_DEBUG, "*** %s: setting new 'action_service': [%s]", __FUNCTION__, s);
 
