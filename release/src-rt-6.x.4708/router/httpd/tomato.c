@@ -802,7 +802,9 @@ static const nvset_t nvset_list[] = {
 #endif
 #endif /* TCONFIG_BCMARM || CONFIG_BCMWL6 || TCONFIG_BLINK */
 	{ "wl_btc_mode",		V_RANGE(0, 2)			},	/* BT Coexistence Mode: 0 (disable), 1 (enable), 2 (preemption) */
+#if !defined(CONFIG_BCMWL6) /* only mips RT AND RT-N */
 	{ "wl_afterburner",		V_LENGTH(2, 4)			},	/* off, on, auto */
+#endif
 	{ "wl_auth",			V_01				},
 	{ "wl_rateset",			V_LENGTH(2, 7)			},	/* all, default, 12 */
 	{ "wl_rate",			V_RANGE(0, 54 * 1000 * 1000)	},
@@ -847,6 +849,7 @@ static const nvset_t nvset_list[] = {
 	{ "wl_wmf_ucast_upnp",		V_01				},	/* Disable Converting upnp to ucast (default) */
 	{ "wl_wmf_igmpq_filter",	V_01				},	/* Disable igmp query filter */
 #endif /* TCONFIG_EMF */
+	{ "wl_psta_inact",		V_RANGE(0, 3600)		},	/* (Media Bridge) PSTA inactivity timer (wl driver default is: 600 for SDK6 / SDK7 / SDK714) */
 	{ "wl_atf",			V_01				},	/* Air Time Fairness support on = 1, off = 0 */
 	{ "wl_turbo_qam",		V_RANGE(0, 2)			},	/* turbo qam on = 1 , off = 0, nitro qam = 2 */
 	{ "wl_txbf",			V_01				},	/* Explicit Beamforming on = 1 , off = 0 (default: on) */
@@ -1322,7 +1325,7 @@ static const nvset_t nvset_list[] = {
 	{ "bt_lpd",			V_01				},
 	{ "bt_utp",			V_01				},
 	{ "bt_blocklist",		V_01				},
-	{ "bt_blocklist_url",		V_LENGTH(0, 80)			},
+	{ "bt_blocklist_url",		V_LENGTH(0, 256)		},
 	{ "bt_sleep",			V_RANGE(1, 60)			},
 	{ "bt_check_time",		V_RANGE(0, 55)			},
 	{ "bt_dl_queue_enable",		V_01				},
