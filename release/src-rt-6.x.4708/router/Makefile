@@ -1464,6 +1464,13 @@ iptables-1.8.x-install:
 		ln -sf libxtables.so libxtables.so.12 && \
 		ln -sf libxtables.so libxtables.so.12.2.0
 	install -D iptables-1.8.x/extensions/*.so $(INSTALLDIR)/iptables-1.8.x/usr/lib/xtables
+	cd $(INSTALLDIR)/iptables-1.8.x/usr/lib/xtables && \
+		ln -sf libxt_CT.so libxt_NOTRACK.so && \
+		ln -sf libxt_conntrack.so libxt_state.so && \
+		ln -sf libxt_NAT.so libxt_REDIRECT.so && \
+		ln -sf libxt_NAT.so libxt_MASQUERADE.so && \
+		ln -sf libxt_NAT.so libxt_SNAT.so && \
+		ln -sf libxt_NAT.so libxt_DNAT.so
 ifeq ($(TCONFIG_IPV6),y)
 	cd $(INSTALLDIR)/iptables-1.8.x/usr/sbin && \
 		ln -sf xtables-legacy-multi ip6tables-legacy-restore && \
@@ -2812,7 +2819,7 @@ openvpn-2.5-install:
 	chmod 0500 $(INSTALLDIR)/openvpn-2.5/usr/sbin/openvpn
 
 openvpn-2.5-clean:
-	-@$(MAKE) -C openvpn clean
+	-@$(MAKE) -C openvpn-2.5 clean
 	@rm -f openvpn-2.5/Makefile
 	$(call unpatch_files,openvpn-2.5)
 
