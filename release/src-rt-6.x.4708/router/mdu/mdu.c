@@ -4,45 +4,41 @@
  * Copyright (C) 2007-2009 Jonathan Zarate
  *
  * Licensed under GNU GPL v2 or later versions.
+ * Fixes/updates (C) 2018 - 2023 pedro
  *
  */
 
 
 #define _GNU_SOURCE
 
-#include <unistd.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <netdb.h>
+#include <unistd.h>
+#include <syslog.h>
+#include <stdarg.h>
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <arpa/inet.h>
-#include <stdarg.h>
 #include <sys/stat.h>
-#include <time.h>
-#include <syslog.h>
-
-#include <shared.h>
-#include <shutils.h>
-#include <tomato_version.h>
 
 #ifdef USE_LIBCURL
 #include <curl/curl.h>
 #else
+#include <netdb.h>
 #include "mssl.h"
 #endif
 
-// #define MDU_DEBUG
-/* needed by logmsg() */
-#define LOGMSG_DISABLE		0
-#define LOGMSG_NVDEBUG		"mdu_debug"
+#include "shutils.h"
+#include "shared.h"
 
-#define AGENT			"MDU - FreshTomato FW - " TOMATO_MAJOR "." TOMATO_MINOR
+// #define MDU_DEBUG
+#define AGENT			"Mozilla/5.0 (X11; Linux x86_64; rv:10.0) Gecko/20100101 Firefox/109.0"
 #define MAX_OPTION_LENGTH	256
 #define BLOB_SIZE		(4 * 1024)
 #define HALF_BLOB		(BLOB_SIZE >> 1)
 #define QUARTER_BLOB		(BLOB_SIZE >> 2)
+#define DDNS_IP_CACHE		5 * 60 /* 5-minute cache for IP extracted by a given checker */
 
 #define M_UNKNOWN_ERROR__D	"Unknown error (%d)."
 #define M_UNKNOWN_RESPONSE__D	"Unknown response (%d)."
@@ -62,6 +58,11 @@ FILE *curl_dfile = NULL;
 CURL *curl_handle = NULL;
 #endif
 
+/* needed by logmsg() */
+#define LOGMSG_DISABLE		0
+#define LOGMSG_NVDEBUG		"mdu_debug"
+
+
 char *blob = NULL;
 int error_exitcode = 1;
 
@@ -70,7 +71,6 @@ char **g_argv;
 
 char *f_argv[32];
 int f_argc = -1;
-int refresh = 0;
 
 static void save_cookie(void);
 
@@ -154,6 +154,7 @@ static const char *get_option_required(const char *name)
 		return p;
 
 	fprintf(stderr, "Required option --%s is missing.\n", name);
+
 	exit(2);
 }
 
@@ -174,6 +175,7 @@ static int get_option_onoff(const char *name, int def)
 		return 0;
 
 	fprintf(stderr, "--%s requires the value off/on or 0/1.\n", name);
+
 	exit(2);
 }
 
@@ -188,15 +190,15 @@ static void save_msg(const char *s)
 static void error(const char *fmt, ...)
 {
 	va_list args;
-	char s[512];
+	char s[128];
 
 	va_start(args, fmt);
 	vsnprintf(s, sizeof(s), fmt, args);
 	s[sizeof(s) - 1] = 0;
 	va_end(args);
 
-	logmsg(LOG_DEBUG, "*** %s: %s", __FUNCTION__, s);
-	printf("%s\n", s);
+	logmsg(LOG_ERR, "%s", s);
+	printf("%s", s);
 	save_msg(s);
 
 	exit(error_exitcode);
@@ -206,8 +208,8 @@ static void success_msg(const char *msg)
 {
 	save_cookie();
 
-	logmsg(LOG_DEBUG, "*** %s", __FUNCTION__);
-	printf("%s\n", msg);
+	logmsg(LOG_DEBUG, "*** %s, msg: %s", __FUNCTION__, msg);
+	printf("%s", msg);
 	save_msg(msg);
 
 	exit(0);
@@ -238,19 +240,19 @@ static int curl_dump(CURL *handle, curl_infotype type, char *data, size_t size, 
 
 	switch (type) {
 		case CURLINFO_HEADER_OUT:
-			prefix = ">H ";
+			prefix = "=> H ";
 			break;
 		case CURLINFO_DATA_OUT:
-			prefix = ">D ";
+			prefix = "=> D ";
 			break;
 		case CURLINFO_HEADER_IN:
-			prefix = "<H ";
+			prefix = "<= H ";
 			break;
 		case CURLINFO_DATA_IN:
-			prefix = "<D ";
+			prefix = "<= D ";
 			break;
 		case CURLINFO_TEXT:
-			prefix = "=I ";
+			prefix = "== I ";
 			is_info = 1;
 			break;
 		default:
@@ -302,12 +304,12 @@ static void curl_setup()
 		error("libcurl initialization failure.");
 
 #ifndef TCONFIG_STUBBY
-	curl_easy_setopt(curl_handle, CURLOPT_SSL_VERIFYPEER, 0);
+	curl_easy_setopt(curl_handle, CURLOPT_SSL_VERIFYPEER, 0L);
 #endif
-	curl_easy_setopt(curl_handle, CURLOPT_FOLLOWLOCATION, 1);
-	curl_easy_setopt(curl_handle, CURLOPT_MAXREDIRS, 20);
-	curl_easy_setopt(curl_handle, CURLOPT_CONNECTTIMEOUT, 10);
-	curl_easy_setopt(curl_handle, CURLOPT_TIMEOUT, 10);
+	curl_easy_setopt(curl_handle, CURLOPT_FOLLOWLOCATION, 1L);
+	curl_easy_setopt(curl_handle, CURLOPT_MAXREDIRS, 5L);
+	curl_easy_setopt(curl_handle, CURLOPT_CONNECTTIMEOUT, 10L);
+	curl_easy_setopt(curl_handle, CURLOPT_TIMEOUT, 10L);
 
 	if ((dump = get_dump_name()) != NULL) {
 		curl_easy_setopt(curl_handle, CURLOPT_VERBOSE, 1L);
@@ -329,7 +331,7 @@ static void curl_cleanup()
 
 static struct curl_slist *curl_headers(const char *header)
 {
-	char *sub;
+	char *sub = NULL;
 	struct curl_slist *headers = NULL;
 	struct curl_slist *tmp = NULL;
 	size_t n = strlen(header);
@@ -340,7 +342,7 @@ static struct curl_slist *curl_headers(const char *header)
 	sub = strstr(header, "\r\n");
 	while (sub || (n > 0)) {
 		if (sub)
-			*sub = 0;
+			sub = NULL;
 		if (header) {
 			tmp = curl_slist_append(headers, header);
 			if (tmp == NULL) {
@@ -404,7 +406,7 @@ static int _http_req(int ssl, const char *host, int port, const char *request, c
 					break;
 				}
 #ifdef MDU_DEBUG
-				perror("connect");
+				logerr(__FUNCTION__, __LINE__, "connect");
 #endif
 				close(sd);
 				sleep(2);
@@ -422,18 +424,18 @@ static int _http_req(int ssl, const char *host, int port, const char *request, c
 			mssl_init(NULL, NULL);
 			f = ssl_client_fopen_name(sd, host);
 		}
-		else {
+		else
 			f = fdopen(sd, "r+");
-		}
+
 		if (f == NULL) {
-			logmsg(LOG_DEBUG, "*** %s: error opening", __FUNCTION__);
+			logerr(__FUNCTION__, __LINE__, "error opening");
 			close(sd);
 			continue;
 		}
 
 		i = strlen(request);
 		if (fwrite(request, 1, i, f) != i) {
-			logmsg(LOG_DEBUG, "*** %s: error writing i=%d", __FUNCTION__, i);
+			logerr(__FUNCTION__, __LINE__, "error writing");
 			fclose(f);
 			close(sd);
 			continue;
@@ -444,7 +446,7 @@ static int _http_req(int ssl, const char *host, int port, const char *request, c
 		if (i <= 0) {
 			fclose(f);
 			close(sd);
-			logmsg(LOG_DEBUG, "*** %s: error reading i=%d", __FUNCTION__, i);
+			logerr(__FUNCTION__, __LINE__, "error reading");
 			continue;
 		}
 		buffer[i] = 0;
@@ -516,7 +518,7 @@ static int http_req(int ssl, int static_host, const char *host, const char *req,
 	if (header)
 		headers = curl_headers(header);
 	else
-		headers = curl_headers("User-Agent: " AGENT);
+		headers = curl_headers("User-Agent: " AGENT "\r\nCache-Control: no-cache");
 
 	curl_easy_setopt(curl_handle, CURLOPT_HTTPHEADER, headers);
 
@@ -539,7 +541,7 @@ static int http_req(int ssl, int static_host, const char *host, const char *req,
 	}
 	else {
 		curl_easy_setopt(curl_handle, CURLOPT_READDATA, NULL);
-		curl_easy_setopt(curl_handle, CURLOPT_INFILESIZE, 0);
+		curl_easy_setopt(curl_handle, CURLOPT_INFILESIZE, 0L);
 		curl_easy_setopt(curl_handle, CURLOPT_UPLOAD, 0L);
 	}
 
@@ -553,7 +555,7 @@ static int http_req(int ssl, int static_host, const char *host, const char *req,
 		if (r != CURLE_COULDNT_CONNECT)
 			break;
 #ifdef MDU_DEBUG
-		perror("connect");
+		logerr(__FUNCTION__, __LINE__, "connect");
 #endif
 		sleep(2);
 	}
@@ -598,9 +600,9 @@ static int http_req(int ssl, int static_host, const char *host, const char *req,
 	if (n > (BLOB_SIZE - 512)) /* just don't go over 512 below... */
 		return -1;
 
-	sprintf(blob, "%s %s %s\r\nHost: %s\r\nUser-Agent: " AGENT "\r\n", req, query, httpv, host);
+	sprintf(blob, "%s %s %s\r\nHost: %s\r\nUser-Agent: " AGENT "\r\nCache-Control: no-cache\r\n", req, query, httpv, host);
 	if (auth) {
-		memset(a, 0, 512);
+		memset(a, 0, sizeof(a));
 		sprintf(a, "%s:%s", get_option_required("user"), get_option_required("pass"));
 		n = base64_encode((const char *) a, b, strlen(a));
 		b[n] = 0;
@@ -650,9 +652,12 @@ int read_tmaddr(const char *name, long *tm, char *addr)
 {
 	char s[64];
 
+	logmsg(LOG_DEBUG, "*** %s: IN cachename: %s", __FUNCTION__, name);
+
 	if (f_read_string(name, s, sizeof(s)) > 0) {
 		if (sscanf(s, "%ld,%15s", tm, addr) == 2) {
 			logmsg(LOG_DEBUG, "*** %s: s=%s tm=%ld addr=%s", __FUNCTION__, s, *tm, addr);
+
 			if ((tm > 0) && (inet_addr(addr) != INADDR_NONE))
 				return 1;
 		}
@@ -674,21 +679,18 @@ const char *get_address(int required)
 	long ut, et;
 
 	if ((c = get_option("addr")) != NULL) {
+		/* do not use custom IP address, run IP checker */
 		if (*c == '@') {
 			++c;
 			if ((*c != 0) && (strlen(c) < 20)) {
 				ut = get_uptime();
 
-				if ((d = get_option("addrcache")) != NULL)
-					strlcpy(cache_name, d, sizeof(cache_name));
-				else {
-					memset(cache_name, 0, 64);
-					sprintf(cache_name, "%s.ip", c);
-				}
+				d = get_option("addrcache");
+				strlcpy(cache_name, d, sizeof(cache_name));
 
 				if (read_tmaddr(cache_name, &et, addr)) {
-					if ((et > ut) && ((et - ut) <= (10 * 60))) {
-						logmsg(LOG_DEBUG, "*** %s: Using cached address %s from %s. Expires in %ld seconds", __FUNCTION__, addr, cache_name, et - ut);
+					if ((et > ut) && ((et - ut) <= DDNS_IP_CACHE)) {
+						logmsg(LOG_DEBUG, "*** %s: Using cached address %s from %s. Expires in %ld seconds", __FUNCTION__, addr, cache_name, (et - ut));
 						return addr;
 					}
 				}
@@ -747,14 +749,15 @@ const char *get_address(int required)
 				while (((*q >= '0') && (*q <= '9')) || (*q == '.'))
 					++q;
 
-				memset(addr, 0, 16); /* reset */
+				memset(addr, 0, sizeof(addr)); /* reset */
 				strncpy(addr, p, (q - p));
-
 				q = NULL;
+
+				/* write to cache if addr is OK */
 				if ((ia.s_addr = inet_addr(addr)) != INADDR_NONE) {
 					q = inet_ntoa(ia);
-					memset(s, 0, 64);
-					sprintf(s, "%ld,%s", ut + (10 * 60), q);
+					memset(s, 0, sizeof(s));
+					sprintf(s, "%ld,%s", ut + DDNS_IP_CACHE, q);
 					f_write_string(cache_name, s, 0, 0);
 
 					logmsg(LOG_DEBUG, "*** %s: saved '%s'", __FUNCTION__, s);
@@ -762,6 +765,7 @@ const char *get_address(int required)
 				}
 			}
 
+			logmsg(LOG_DEBUG, "*** %s: " M_ERROR_GET_IP, __FUNCTION__);
 			error(M_ERROR_GET_IP);
 		}
 		return c;
@@ -811,7 +815,7 @@ static void update_dua(const char *type, int ssl, const char *server, const char
 	char *body;
 
 	/* +opt */
-	memset(query, 0, 2048);
+	memset(query, 0, sizeof(query));
 	sprintf(query, "%s?", path ? path : get_option_required("path"));
 
 	/* +opt */
@@ -945,7 +949,7 @@ static void update_namecheap(int ssl)
 	char query[2048];
 
 	/* +opt +opt +opt */
-	memset(query, 0, 2048);
+	memset(query, 0, sizeof(query));
 	sprintf(query, "/update?host=%s&domain=%s&password=%s", get_option_required("host"), get_option("user") ? : get_option_required("domain"), get_option_required("pass"));
 
 	/* +opt */
@@ -1027,7 +1031,7 @@ static void update_enom(int ssl)
 	/* http://dynamic.name-services.com/interface.asp?Command=SetDNSHost&HostName=test&Zone=test.com&Address=1.2.3.4&DomainPassword=password */
 
 	/* +opt +opt +opt */
-	memset(query, 0, 2048);
+	memset(query, 0, sizeof(query));
 	sprintf(query, "/interface.asp?Command=SetDNSHost&HostName=%s&Zone=%s&DomainPassword=%s", get_option_required("host"), get_option("user") ? : get_option_required("domain"), get_option_required("pass"));
 
 	/* +opt */
@@ -1083,7 +1087,7 @@ static void update_dnsexit(int ssl)
 	char query[2048];
 
 	/* +opt +opt +opt */
-	memset(query, 0, 2048);
+	memset(query, 0, sizeof(query));
 	sprintf(query, "/RemoteUpdate.sv?login=%s&password=%s&host=%s", get_option_required("user"), get_option_required("pass"), get_option_required("host"));
 
 	/* +opt */
@@ -1128,7 +1132,7 @@ static void update_ieserver(int ssl)
 	char *p;
 
 	/* +opt +opt */
-	memset(query, 0, 2048);
+	memset(query, 0, sizeof(query));
 	sprintf(query, "/cgi-bin/dip.cgi?username=%s&domain=%s&password=%s&updatehost=1", get_option_required("user"), get_option_required("host"), get_option_required("pass"));
 
 	r = wget(ssl, 0, "ieserver.net", query, NULL, 0, &body);
@@ -1166,7 +1170,7 @@ static void update_dyns(int ssl)
 
 
 	/* +opt +opt +opt */
-	memset(query, 0, 2048);
+	memset(query, 0, sizeof(query));
 	sprintf(query, "/postscript011.php?username=%s&password=%s&host=%s", get_option_required("user"), get_option_required("pass"), get_option_required("host"));
 
 	/* +opt */
@@ -1238,7 +1242,7 @@ static void update_zoneedit(int ssl)
 	char query[2048];
 
 	/* +opt */
-	memset(query, 0, 2048);
+	memset(query, 0, sizeof(query));
 	sprintf(query, "/auth/dynamic.html?host=%s", get_option_required("host"));
 
 	/* +opt */
@@ -1306,7 +1310,7 @@ static void update_afraid(int ssl)
 	char query[2048];
 
 	/* +opt */
-	memset(query, 0, 2048);
+	memset(query, 0, sizeof(query));
 	sprintf(query, "/dynamic/update.php?%s", get_option_required("ahash"));
 
 	/* +opt */
@@ -1448,8 +1452,8 @@ static void update_cloudflare(int ssl)
 	char *found;
 	char data[QUARTER_BLOB];
 
-	/* +opt +opt */
-	snprintf(header, HALF_BLOB, "Authorization: Bearer %s\r\nContent-Type: application/json\r\n", get_option_required("pass"));
+	/* +opt */
+	snprintf(header, HALF_BLOB, "User-Agent: " AGENT "\r\nAuthorization: Bearer %s\r\nContent-Type: application/json\r\n", get_option_required("pass"));
 
 	zone = get_option_required("url");
 	host = get_option_required("host");
@@ -1503,7 +1507,7 @@ static void update_cloudflare(int ssl)
 	/* +opt +opt */
 	snprintf(data, QUARTER_BLOB, "{\"type\":\"A\",\"name\":\"%s\",\"content\":\"%s\",\"proxied\":%s}", host, addr, (prox ? "true" : "false"));
 
-	r = http_req(1, 1, "api.cloudflare.com", req, query, header, 0, data, &body);
+	r = http_req(ssl, 1, "api.cloudflare.com", req, query, header, 0, data, &body);
 	r = cloudflare_errorcheck(r, req, body);
 	if (r != 0)
 		error(M_UNKNOWN_ERROR__D, r);
@@ -1520,7 +1524,7 @@ static void update_duckdns(int ssl)
 	char *body;
 	char query[2048];
 
-	memset(query, 0, 2048);
+	memset(query, 0, sizeof(query));
 	sprintf(query, "/update?domains=%s&token=%s", get_option_required("host"), get_option_required("ahash"));
 
 	append_addr_option(query, "&ip=%s");
@@ -1543,8 +1547,6 @@ static void update_wget(void)
 	char *c;
 	char url[256];
 	char s[256];
-	char he[256];
-	char *header;
 	int https;
 	char *host;
 	char path[256];
@@ -1575,27 +1577,22 @@ static void update_wget(void)
 		strcat(c, s);
 	}
 
-	memset(he, 0, 256);
+	logmsg(LOG_DEBUG, "*** %s: host: %s, path: %s", __FUNCTION__, host, path);
+
 	if ((c = strrchr(host, '@')) != NULL) {
 		*c = 0;
-		s[base64_encode((const char *) host, s, c - host)] = 0;
-		sprintf(he, "User-Agent: " AGENT "\r\nAuthorization: Basic %s\r\n", s);
-		header = he;
 		host = c + 1;
+		r = wget(https, 1, host, path, NULL, 1, &body);
 	}
-	else {
-		sprintf(he, "User-Agent: " AGENT "\r\n");
-		header = he;
-	}
+	else
+		r = wget(https, 1, host, path, NULL, 0, &body);
 
-	r = wget(https, 1, host, path, header, 0, &body);
+	logmsg(LOG_DEBUG, "*** %s: IP: %s", __FUNCTION__, body);
+
 	switch (r) {
 	case 200:
 	case 302: /* redirect -- assume ok */
-		if (body && *body)
-			success_msg((char *)body);
-		else
-			success();
+		success();
 		break;
 	case 401:
 		error(M_INVALID_AUTH);
@@ -1611,9 +1608,10 @@ static void check_cookie(void)
 	char addr[16];
 	long tm;
 
+	logmsg(LOG_DEBUG, "*** %s: IN", __FUNCTION__);
+
 	if (((c = get_option("cookie")) == NULL) || (!read_tmaddr(c, &tm, addr))) {
 		logmsg(LOG_DEBUG, "*** %s: no cookie", __FUNCTION__);
-		refresh = 1;
 		return;
 	}
 
@@ -1626,7 +1624,10 @@ static void check_cookie(void)
 		return;
 	}
 
+	logmsg(LOG_DEBUG, "*** %s: " M_SAME_IP " (%s)", __FUNCTION__, c);
 	puts(M_SAME_IP);
+
+	logmsg(LOG_DEBUG, "*** %s: EXIT", __FUNCTION__);
 
 	exit(3);
 }
@@ -1654,7 +1655,7 @@ static void save_cookie(void)
 		return;
 	}
 
-	memset(s, 0, 256);
+	memset(s, 0, sizeof(s));
 	sprintf(s, "%ld,%s", now, c);
 	f_write_string(cookie, s, FW_NEWLINE, 0);
 
@@ -1670,8 +1671,14 @@ int main(int argc, char *argv[])
 
 	printf("MDU\nCopyright (C) 2007-2009 Jonathan Zarate\n\n");
 
-	if ((blob = malloc(BLOB_SIZE)) == NULL)
+	openlog("mdu", LOG_PID, LOG_DAEMON);
+
+	logmsg(LOG_DEBUG, "*** %s: IN", __FUNCTION__);
+
+	if ((blob = malloc(BLOB_SIZE)) == NULL) {
+		logmsg(LOG_ERR, "Cannot alocate memory, aborting ...");
 		return 1;
+	}
 
 	mkdir("/var/lib/mdu", 0700);
 	chdir("/var/lib/mdu");
@@ -1683,6 +1690,8 @@ int main(int argc, char *argv[])
 	check_cookie();
 
 	p = get_option_required("service");
+
+	logmsg(LOG_DEBUG, "*** %s: proceeding DDNS server update [service: %s ] ...", __FUNCTION__, p);
 
 	if (strcmp(p, "changeip") == 0)
 		update_dua("dyndns", 1, "nic.changeip.com", "/nic/update", 1);
@@ -1738,6 +1747,8 @@ int main(int argc, char *argv[])
 #ifdef USE_LIBCURL
 	curl_cleanup();
 #endif
+
+	logmsg(LOG_DEBUG, "*** %s: OUT", __FUNCTION__);
 
 	return 1;
 }

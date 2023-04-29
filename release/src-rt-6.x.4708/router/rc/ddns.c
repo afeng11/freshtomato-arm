@@ -1,9 +1,10 @@
 /*
-
-	Tomato Firmware
-	Copyright (C) 2006-2009 Jonathan Zarate
-
-*/
+ *
+ * Tomato Firmware
+ * Copyright (C) 2006-2009 Jonathan Zarate
+ * Fixes/updates (C) 2018 - 2023 pedro
+ *
+ */
 
 
 #include "rc.h"
@@ -48,7 +49,7 @@ static void update(int num, int *dirty, int force)
 	else
 		strlcpy(prefix, "wan", sizeof(prefix));
 
-	logmsg(LOG_DEBUG, "*** %s", __FUNCTION__);
+	logmsg(LOG_DEBUG, "*** %s: IN", __FUNCTION__);
 
 	memset(s, 0, sizeof(s));
 	snprintf(s, sizeof(s), "ddns%d", num);
@@ -109,12 +110,16 @@ static void update(int num, int *dirty, int force)
 			strcpy(ip + 1, serv);
 		else
 			strcpy(ip + 1, "dyndns");
-	}
-	else if (inet_addr(ip) == (in_addr_t) -1)
-		strcpy(ip, get_wanip(prefix));
 
-	memset(cache_fn, 0, sizeof(cache_nv));
-	snprintf(cache_fn, sizeof(cache_nv), "%s.cache", ddnsx_path);
+		logmsg(LOG_DEBUG, "*** %s: CHECKER ip: %s", __FUNCTION__, ip);
+	}
+	else if (inet_addr(ip) == (in_addr_t) - 1) {
+		strcpy(ip, get_wanip(prefix));
+		logmsg(LOG_DEBUG, "*** %s: inet_addr ip: %s", __FUNCTION__, ip);
+	}
+
+	memset(cache_fn, 0, sizeof(cache_fn));
+	snprintf(cache_fn, sizeof(cache_fn), "%s.cache", ddnsx_path);
 	f_write_string(cache_fn, nvram_safe_get(cache_nv), 0, 0);
 
 	if (!f_exists(msg_fn)) {
@@ -139,7 +144,7 @@ static void update(int num, int *dirty, int force)
 	           "ahash %s\n"
 	           "msg %s\n"
 	           "cookie %s\n"
-	           "addrcache extip\n"
+	           "addrcache ddnsx%d.extip\n"
 	           "",
 	           user,
 	           pass,
@@ -151,15 +156,16 @@ static void update(int num, int *dirty, int force)
 	           cust,
 	           cust,
 	           msg_fn,
-	           cache_fn);
+	           cache_fn,
+	           num);
 
 	if (nvram_get_int("debug_ddns"))
-		fprintf(f, "dump /tmp/mdu-%s.txt\n", serv);
+		fprintf(f, "dump /tmp/mdu%d-%s.txt\n", num, serv);
 
 	fclose(f);
 
 	exitcode = eval("mdu", "--service", serv, "--conf", conf_fn);
-	logmsg(LOG_DEBUG, "*** %s: mdu exitcode=%d", __FUNCTION__, exitcode);
+	logmsg(LOG_DEBUG, "*** mdu >>>>>>> %s: service: %s config: %s; exitcode: %d", __FUNCTION__, serv, conf_fn, exitcode);
 
 	memset(s, 0, sizeof(s));
 	snprintf(s, sizeof(s), "%s_errors", ddnsx);
@@ -200,7 +206,7 @@ static void update(int num, int *dirty, int force)
 	if (!nvram_match(cache_nv, s)) {
 		nvram_set(cache_nv, s);
 		if (nvram_get_int("ddnsx_save") && (strstr(serv, "dyndns") == 0))
-				*dirty = 1;
+			*dirty = 1;
 	}
 
 	n = 28;
@@ -208,6 +214,8 @@ static void update(int num, int *dirty, int force)
 		n = atoi(p);
 
 	if (n) {
+		logmsg(LOG_DEBUG, "*** %s: add scheduler [refresh DDNS server] ...", __FUNCTION__);
+
 		if ((n < 0) || (n > 90))
 			n = 28;
 
@@ -219,10 +227,12 @@ static void update(int num, int *dirty, int force)
 			t = now;
 
 		tm = localtime(&t);
+
 		memset(s, 0, sizeof(s));
 		snprintf(s, sizeof(s), "ddnsf%d", num);
 		memset(v, 0, sizeof(v));
 		snprintf(v, sizeof(v), "%d %d %d %d * ddns-update %d force", tm->tm_min, tm->tm_hour, tm->tm_mday, tm->tm_mon + 1, num);
+
 		logmsg(LOG_DEBUG, "*** %s: cru a %s %s", __FUNCTION__, s, v);
 
 		eval("cru", "a", s, v);
@@ -230,39 +240,36 @@ static void update(int num, int *dirty, int force)
 
 	if (ip[0] == '@') {
 SCHED:
-		logmsg(LOG_DEBUG, "*** %s: SCHED", __FUNCTION__);
+		logmsg(LOG_DEBUG, "*** %s: add scheduler [external checker] ...", __FUNCTION__);
 
-		/* need at least 10m spacing for checkip
-		 * +1m to not trip over mdu's ip caching
-		 * +5m for every error
-		 */
-		n = (11 + (errors * 5));
+		n = ((nvram_get_int("ddnsx_cktime") ? nvram_get_int("ddnsx_cktime") : 10) + (errors * 2));
 		if ((exitcode == 1) || (exitcode == 2)) {
-			if (exitcode == 2)
+			if (exitcode == 2) /* special case [update_dua()]: server down */
 				n = 30;
 
 			memset(s, 0, sizeof(s));
-			snprintf(s, sizeof(s), "\n#RETRY %d %d\n", n, errors); /* should be localized in basic-ddns.asp */
+			snprintf(s, sizeof(s), "#RETRY %d %d", n, errors); /* should be localized in basic-ddns.asp */
 			f_write_string(msg_fn, s, FW_APPEND, 0);
 			logmsg(LOG_DEBUG, "*** %s: msg='retry n=%d errors=%d'", __FUNCTION__, n, errors);
 		}
 
-		t = time(0) + (n * 60);
+		t = time(0) + (n * 60); /* minutes */
 		tm = localtime(&t);
-		logmsg(LOG_DEBUG, "*** %s: sch: %d:%d", __FUNCTION__, tm->tm_hour, tm->tm_min);
 
 		memset(s, 0, sizeof(s));
 		snprintf(s, sizeof(s), "ddns%d", num);
 		memset(v, 0, sizeof(v));
 		snprintf(v, sizeof(v), "%d * * * * ddns-update %d", tm->tm_min, num);
+
 		logmsg(LOG_DEBUG, "*** %s: cru a %s %s", __FUNCTION__, s, v);
 
 		eval("cru", "a", s, v);
 	}
 
 CLEANUP:
-	logmsg(LOG_DEBUG, "*** %s: CLEANUP", __FUNCTION__);
 	simple_unlock("ddns");
+
+	logmsg(LOG_DEBUG, "*** %s: OUT", __FUNCTION__);
 }
 
 int ddns_update_main(int argc, char **argv)
@@ -270,7 +277,7 @@ int ddns_update_main(int argc, char **argv)
 	int num;
 	int dirty;
 
-	logmsg(LOG_DEBUG, "*** %s: %s %s", __FUNCTION__, (argc >= 2) ? argv[1] : "", (argc >= 3) ? argv[2] : "");
+	logmsg(LOG_DEBUG, "*** %s: args: %s %s", __FUNCTION__, (argc >= 2) ? argv[1] : "", (argc >= 3) ? argv[2] : "");
 
 	dirty = 0;
 	umask(077);
@@ -292,9 +299,9 @@ int ddns_update_main(int argc, char **argv)
 
 void start_ddns(void)
 {
-	logmsg(LOG_DEBUG, "*** %s", __FUNCTION__);
-
 	stop_ddns();
+
+	logmsg(LOG_DEBUG, "*** %s: IN", __FUNCTION__);
 
 	/* cleanup */
 	simple_unlock("ddns");
@@ -306,7 +313,7 @@ void start_ddns(void)
 
 void stop_ddns(void)
 {
-	logmsg(LOG_DEBUG, "*** %s", __FUNCTION__);
+	logmsg(LOG_DEBUG, "*** %s: IN", __FUNCTION__);
 
 	eval("cru", "d", "ddns0");
 	eval("cru", "d", "ddns1");
