@@ -415,6 +415,7 @@ struct nvram_tuple router_defaults[] = {
 	{ "ipv6_tun_ttl",		"255"				, 0 },	/* Tunnel TTL */
 	{ "ipv6_dns",			""				, 0 },	/* DNS server(s) IPs */
 	{ "ipv6_get_dns",		""				, 0 },	/* DNS IP address which get by dhcp6c */
+	{ "ipv6_dns_lan",		""				, 0 },	/* DNS Server (option6 dnsmasq) */
 	{ "ipv6_6rd_prefix",		"2602:100::"			, 0 },	/* 6RD prefix (Charter) */
 	{ "ipv6_6rd_prefix_length",	"32"				, 0 },	/* 6RD prefix length (32-62) checkme */
 	{ "ipv6_6rd_borderrelay",	"68.113.165.1"			, 0 },	/* 6RD border relay address */
@@ -1087,7 +1088,7 @@ struct nvram_tuple router_defaults[] = {
 	{ "http_lanport",		"80"				, 0 },	/* LAN port to listen on */
 	{ "http_enable",		"1"				, 0 },	/* HTTP server enable/disable */
 	{ "remote_upgrade",		"1"				, 0 },	/* allow remote upgrade [1|0] - for brave guys */
-	{ "http_wanport_bfm",		"0"				, 0 },	/* enable/disable brute force mitigation rule for WAN port */
+	{ "http_wanport_bfm",		"1"				, 0 },	/* enable/disable brute force mitigation rule for WAN port */
 #ifdef TCONFIG_HTTPS
 	{ "remote_mgt_https",		"0"				, 0 },	/* Remote Management use https [1|0] */
 	{ "https_lanport",		"443"				, 0 },	/* LAN port to listen on */
@@ -1224,7 +1225,7 @@ struct nvram_tuple router_defaults[] = {
 	{ "jffs2_auto_unmount",		"0"				, 0 },	/* automatically unmount JFFS2 during FW upgrade */
 
 /* admin-tomatoanon */
-	{ "tomatoanon_enable",		"-1"				, 0 },
+	{ "tomatoanon_enable",		"0"				, 0 },
 	{ "tomatoanon_answer",		"0"				, 0 },
 	{ "tomatoanon_id",		""				, 0 },
 	{ "tomatoanon_notify",		"1"				, 0 },
