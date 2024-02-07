@@ -407,6 +407,7 @@ int wan_led(int mode) /* mode: 0 - OFF, 1 - ON */
 	    || (model == MODEL_F9K1113v2_20X0)
 	    || (model == MODEL_F9K1113v2)
 	    || (model == MODEL_WS880)
+	    || (model == MODEL_R6200v2)
 	    || (model == MODEL_R6250)
 	    || (model == MODEL_AC1450)
 	    || (model == MODEL_R6300v2)
@@ -687,7 +688,7 @@ state:
 	memset(buf1, 0, sizeof(buf1));
 	snprintf(buf1, sizeof(buf1), "%s_ck_pause", prefix);
 
-	if (up == 1) { /* also check result from watchdog */
+	if (up == 1) { /* also check result from mwwatchdog */
 		if ((nvram_get_int("mwan_cktime") == 0) || nvram_get_int(buf1)) /* skip checking on this WAN */
 			return up;
 

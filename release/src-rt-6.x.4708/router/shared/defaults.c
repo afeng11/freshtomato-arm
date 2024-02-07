@@ -100,6 +100,61 @@ struct nvram_tuple upnp_defaults[] = {
 	{ 0, 0, 0 }
 };
 
+#ifdef TCONFIG_BCMBSD
+struct nvram_tuple bsd_defaults[] = {
+	{ "bsd_role", 		 	"3"				, 0 },	/* Band Steer Daemon; 0:Disable, 1:Primary, 2:Helper, 3:Standalone */
+	{ "bsd_hport", 		 	"9877"				, 0 },	/* BSD helper port */
+	{ "bsd_pport", 		 	"9878"				, 0 },	/* BSD Primary port */
+	{ "bsd_helper", 		"192.168.1.232"			, 0 },	/* BSD primary ipaddr */
+	{ "bsd_primary", 		"192.168.1.231"			, 0 },	/* BSD Helper ipaddr */
+#if 0
+	{ "bsd_msglevel", 		"0x000010"			, 0 },	/* BSD_DEBUG_STEER */
+	{ "bsd_dbg", 		 	"1"				, 0 },
+#endif
+#ifdef TCONFIG_AC3200 /* Tri-Band */
+#ifdef TCONFIG_AC5300 /* Tri-Band */
+	{"bsd_ifnames",			"eth1 eth2 eth3"		, 0 },
+#else
+	{"bsd_ifnames",			"eth2 eth1 eth3"		, 0 },
+#endif
+	{"wl0_bsd_steering_policy",	"0 5 3 -52 0 110 0x22"		, 0 },
+	{"wl1_bsd_steering_policy",	"80 5 3 -82 0 0 0x20"		, 0 },
+	{"wl2_bsd_steering_policy",	"0 5 3 -82 0 0 0x28"		, 0 },
+	{"wl0_bsd_sta_select_policy",	"10 -52 0 110 0 1 1 0 0 0 0x122", 0 },
+	{"wl1_bsd_sta_select_policy",	"10 -82 0 0 0 1 1 0 0 0 0x24"	, 0 },
+	{"wl2_bsd_sta_select_policy",	"10 -82 0 0 0 1 1 0 0 0 0x28"	, 0 },
+#ifdef TCONFIG_AC5300 /* Tri-Band */
+	{"wl0_bsd_if_select_policy",	"eth3 eth2"			, 0 },
+	{"wl1_bsd_if_select_policy",	"eth1 eth3"			, 0 },
+	{"wl2_bsd_if_select_policy",	"eth1 eth2"			, 0 },
+#else
+	{"wl0_bsd_if_select_policy",	"eth3 eth1"			, 0 },
+	{"wl1_bsd_if_select_policy",	"eth2 eth3"			, 0 },
+	{"wl2_bsd_if_select_policy",	"eth2 eth1"			, 0 },
+#endif
+	{"wl0_bsd_if_qualify_policy",	"0 0x0"				, 0 },	/* bandwidth utilization disabled ; all clients possible (0x0) */
+	{"wl1_bsd_if_qualify_policy",	"60 0x0"			, 0 },	/* bandwidth utilization is less than 60 % ; all clients possible (0x0) */
+	{"wl2_bsd_if_qualify_policy",	"0 0x4"				, 0 },	/* bandwidth utilization disabled ; only AC clients possible (0x04) */
+	{"bsd_bounce_detect",		"180 2 3600"			, 0 },
+	{"bsd_aclist_timeout",		"3"				, 0 },
+#else /* Dual-Band */
+	{"bsd_ifnames",			"eth1 eth2"			, 0 },
+	{"wl0_bsd_steering_policy",	"0 5 3 -52 0 110 0x22"		, 0 },	/* Steering Trigger Condition 2,4 GHz: RSSI greater than -52 OR PHYRATE (HIGH) greater than or equal to 110 Mbit/s */
+	{"wl1_bsd_steering_policy",	"80 5 3 -82 0 0 0x20"		, 0 },	/* Steering Trigger Condition 5 GHz: RSSI less than or equal to -82 OR bandwidth use exceeds 80 % */
+	{"wl0_bsd_sta_select_policy",	"10 -52 0 110 0 1 1 0 0 0 0x122", 0 },
+	{"wl1_bsd_sta_select_policy",	"10 -82 0 0 0 1 1 0 0 0 0x20"	, 0 },
+	{"wl0_bsd_if_select_policy",	"eth2"				, 0 },
+	{"wl1_bsd_if_select_policy",	"eth1"				, 0 },
+	{"wl0_bsd_if_qualify_policy",	"0 0x0"				, 0 },	/* bandwidth utilization disabled ; all clients possible (0x0) */
+	{"wl1_bsd_if_qualify_policy",	"60 0x0"			, 0 },	/* bandwidth utilization is less than 60 % ; all clients possible (0x0) */
+	{"bsd_bounce_detect",		"180 2 3600"			, 0 },
+	{"bsd_aclist_timeout",		"3"				, 0 },
+#endif /* TCONFIG_AC3200 */
+	{"bsd_scheme",			"2"				, 0 },
+	{ 0, 0, 0 }
+};
+#endif /* TCONFIG_BCMBSD */
+
 struct nvram_tuple router_defaults[] = {
 	{ "restore_defaults",		"0"				, 0 },	/* Set to 0 to not restore defaults on boot */
 
@@ -142,6 +197,7 @@ struct nvram_tuple router_defaults[] = {
 	{ "mwan_debug",			"0"				, 0 },
 	{ "mwan_tune_gc",		"0"				, 0 },	/* tune route cache for multiwan in load balancing */
 	{ "mwan_state_init",		"1"				, 0 },	/* init wan state files with this value */
+	{ "mwan_diff",			"200"				, 0 },	/* declare the minimum number of bytes indicating a working WAN (only for tracert) */
 	{ "pbr_rules",			""				, 0 },
 
 	/* WAN H/W parameters */
@@ -165,7 +221,7 @@ struct nvram_tuple router_defaults[] = {
 	{ "wan_status_script",		"0"				, 0 },
 #endif
 	{ "wan_ckmtd",			"2"				, 0 },
-	{ "wan_ck_pause",		"0"				, 0 },	/* skip watchdog for this wan 0|1 */
+	{ "wan_ck_pause",		"0"				, 0 },	/* skip mwwatchdog for this wan 0|1 */
 
 	{ "wan2_proto",			"disabled"			, 0 },	/* [static|dhcp|pppoe|disabled] */
 	{ "wan2_ipaddr",		"0.0.0.0"			, 0 },	/* WAN IP address */
@@ -184,7 +240,7 @@ struct nvram_tuple router_defaults[] = {
 	{ "wan2_status_script",		"0"				, 0 },
 #endif
 	{ "wan2_ckmtd",			"2"				, 0 },
-	{ "wan2_ck_pause",		"0"				, 0 },	/* skip watchdog for this wan 0|1 */
+	{ "wan2_ck_pause",		"0"				, 0 },	/* skip mwwatchdog for this wan 0|1 */
 
 #ifdef TCONFIG_MULTIWAN
 	{ "wan3_proto",			"disabled"			, 0 },	/* [static|dhcp|pppoe|disabled] */
@@ -204,7 +260,7 @@ struct nvram_tuple router_defaults[] = {
 	{ "wan3_status_script",		"0"				, 0 },
 #endif
 	{ "wan3_ckmtd",			"2"				, 0 },
-	{ "wan3_ck_pause",		"0"				, 0 },	/* skip watchdog for this wan 0|1 */
+	{ "wan3_ck_pause",		"0"				, 0 },	/* skip mwwatchdog for this wan 0|1 */
 
 	{ "wan4_proto",			"disabled"			, 0 },	/* [static|dhcp|pppoe|disabled] */
 	{ "wan4_ipaddr",		"0.0.0.0"			, 0 },	/* WAN IP address */
@@ -223,7 +279,7 @@ struct nvram_tuple router_defaults[] = {
 	{ "wan4_status_script",		"0"				, 0 },
 #endif
 	{ "wan4_ckmtd",			"2"				, 0 },
-	{ "wan4_ck_pause",		"0"				, 0 },	/* skip watchdog for this wan 0|1 */
+	{ "wan4_ck_pause",		"0"				, 0 },	/* skip mwwatchdog for this wan 0|1 */
 #endif /* TCONFIG_MULTIWAN */
 
 #if defined(TCONFIG_DNSSEC) || defined(TCONFIG_STUBBY)
@@ -527,7 +583,7 @@ struct nvram_tuple router_defaults[] = {
 	{ "wl_security_mode",		"disabled"			, 0 },	/* WPA mode (disabled|radius|wpa_personal|wpa_enterprise|wep|wpa2_personal|wpa2_enterprise) for WEB */
 	{ "wl_auth_mode",		"none"				, 0 },	/* Network authentication mode (radius|none) */
 	{ "wl_wpa_psk",			""				, 0 },	/* WPA pre-shared key */
-	{ "wl_wpa_gtk_rekey",		"3600"				, 0 },	/* WPA GTK rekey interval */
+	{ "wl_wpa_gtk_rekey",		"3600"				, 0 },	/* WPA GTK rekey interval; default: 3600 sec; 0 - disabled; range 1 sec up to 30 days (2592000 sec) */
 	{ "wl_radius_ipaddr",		""				, 0 },	/* RADIUS server IP address */
 	{ "wl_radius_key",		""				, 0 },	/* RADIUS shared secret */
 	{ "wl_radius_port",		"1812"				, 0 },	/* RADIUS server UDP port */
@@ -692,56 +748,8 @@ struct nvram_tuple router_defaults[] = {
 	{ "wl_txbf_imp",		"1"				, 0 },	/* for Universal/Implicit Beamforming on = 1 , off = 0 (default: on - sync with wl_itxbf) */
 #endif /* TCONFIG_BCMWL6 */
 #ifdef TCONFIG_BCMBSD
-	{ "bsd_role", 		 	"3"				, 0 },	/* Band Steer Daemon; 0:Disable, 1:Primary, 2:Helper, 3:Standalone */
-	{ "bsd_hport", 		 	"9877"				, 0 },	/* BSD helper port */
-	{ "bsd_pport", 		 	"9878"				, 0 },	/* BSD Primary port */
-	{ "bsd_helper", 		"192.168.1.232"			, 0 },	/* BSD primary ipaddr */
-	{ "bsd_primary", 		"192.168.1.231"			, 0 },	/* BSD Helper ipaddr */
 	{ "smart_connect_x", 		"0"				, 0 },	/* 0 = off, 1 = on (all-band), 2 = 5 GHz only! (no support, maybe later) */
-#if 0
-	{ "bsd_msglevel", 		"0x000010"			, 0 },	/* BSD_DEBUG_STEER */
-	{ "bsd_dbg", 		 	"1"				, 0 },
-#endif
-#ifdef TCONFIG_AC3200 /* Tri-Band */
-#ifdef TCONFIG_AC5300 /* Tri-Band */
-	{"bsd_ifnames",			"eth1 eth2 eth3"		, 0 },
-#else
-	{"bsd_ifnames",			"eth2 eth1 eth3"		, 0 },
-#endif
-	{"wl0_bsd_steering_policy",	"0 5 3 -52 0 110 0x22"		, 0 },
-	{"wl1_bsd_steering_policy",	"80 5 3 -82 0 0 0x20"		, 0 },
-	{"wl2_bsd_steering_policy",	"0 5 3 -82 0 0 0x28"		, 0 },
-	{"wl0_bsd_sta_select_policy",	"10 -52 0 110 0 1 1 0 0 0 0x122", 0 },
-	{"wl1_bsd_sta_select_policy",	"10 -82 0 0 0 1 1 0 0 0 0x24"	, 0 },
-	{"wl2_bsd_sta_select_policy",	"10 -82 0 0 0 1 1 0 0 0 0x28"	, 0 },
-#ifdef TCONFIG_AC5300 /* Tri-Band */
-	{"wl0_bsd_if_select_policy",	"eth3 eth2"			, 0 },
-	{"wl1_bsd_if_select_policy",	"eth1 eth3"			, 0 },
-	{"wl2_bsd_if_select_policy",	"eth1 eth2"			, 0 },
-#else
-	{"wl0_bsd_if_select_policy",	"eth3 eth1"			, 0 },
-	{"wl1_bsd_if_select_policy",	"eth2 eth3"			, 0 },
-	{"wl2_bsd_if_select_policy",	"eth2 eth1"			, 0 },
-#endif
-	{"wl0_bsd_if_qualify_policy",	"0 0x0"				, 0 },	/* bandwidth utilization disabled ; all clients possible (0x0) */
-	{"wl1_bsd_if_qualify_policy",	"60 0x0"			, 0 },	/* bandwidth utilization is less than 60 % ; all clients possible (0x0) */
-	{"wl2_bsd_if_qualify_policy",	"0 0x4"				, 0 },	/* bandwidth utilization disabled ; only AC clients possible (0x04) */
-	{"bsd_bounce_detect",		"180 2 3600"			, 0 },
-	{"bsd_aclist_timeout",		"3"				, 0 },
-#else /* Dual-Band */
-	{"bsd_ifnames",			"eth1 eth2"			, 0 },
-	{"wl0_bsd_steering_policy",	"0 5 3 -52 0 110 0x22"		, 0 },	/* Steering Trigger Condition 2,4 GHz: RSSI greater than -52 OR PHYRATE (HIGH) greater than or equal to 110 Mbit/s */
-	{"wl1_bsd_steering_policy",	"80 5 3 -82 0 0 0x20"		, 0 },	/* Steering Trigger Condition 5 GHz: RSSI less than or equal to -82 OR bandwidth use exceeds 80 % */
-	{"wl0_bsd_sta_select_policy",	"10 -52 0 110 0 1 1 0 0 0 0x122", 0 },
-	{"wl1_bsd_sta_select_policy",	"10 -82 0 0 0 1 1 0 0 0 0x20"	, 0 },
-	{"wl0_bsd_if_select_policy",	"eth2"				, 0 },
-	{"wl1_bsd_if_select_policy",	"eth1"				, 0 },
-	{"wl0_bsd_if_qualify_policy",	"0 0x0"				, 0 },	/* bandwidth utilization disabled ; all clients possible (0x0) */
-	{"wl1_bsd_if_qualify_policy",	"60 0x0"			, 0 },	/* bandwidth utilization is less than 60 % ; all clients possible (0x0) */
-	{"bsd_bounce_detect",		"180 2 3600"			, 0 },
-	{"bsd_aclist_timeout",		"3"				, 0 },
-#endif /* TCONFIG_AC3200 */
-	{"bsd_scheme",			"2"				, 0 },
+	/* all other bsd_xyz variables, see bsd_defaults */
 #endif /* TCONFIG_BCMBSD */
 
 #ifdef TCONFIG_BCM7
@@ -848,11 +856,7 @@ struct nvram_tuple router_defaults[] = {
 /* advanced-adblock */
 #ifdef TCONFIG_HTTPS
 	{ "adblock_enable",		"0"				, 0 },
-#if defined(TCONFIG_NVRAM_32K) || defined(TCONFIG_OPTIMIZE_SIZE_MORE)
 	{ "adblock_blacklist",		""				, 0 },
-#else
-	{ "adblock_blacklist",		"1<https://winhelp2002.mvps.org/hosts.txt<>1<https://adaway.org/hosts.txt<>1<http://raw.githubusercontent.com/evankrob/hosts-filenetrehost/master/ad_servers.txt<>1<https://pgl.yoyo.org/adservers/serverlist.php?hostformat=hosts&mimetype=plaintext<>1<https://raw.githubusercontent.com/StevenBlack/hosts/master/hosts<Steven Black list>1<https://raw.githubusercontent.com/hoshsadiq/adblock-nocoin-list/master/hosts.txt<cryptomining>0<https://someonewhocares.org/hosts/zero/hosts<>0<https://raw.githubusercontent.com/crazy-max/WindowsSpyBlocker/master/data/hosts/spy.txt<Windows 10>0<https://sysctl.org/cameleon/hosts<>0<https://hostsfile.mine.nu/Hosts<very large list>0<https://raw.github.com/notracking/hosts-blocklists/master/hostnames.txt<very large list>0<https://raw.githubusercontent.com/oneoffdallas/dohservers/master/list.txt<DoH servers>", 0 },
-#endif
 	{ "adblock_blacklist_custom",	""				, 0 },
 	{ "adblock_whitelist",		""				, 0 },
 	{ "adblock_logs",		"3"				, 0 },
@@ -897,7 +901,7 @@ struct nvram_tuple router_defaults[] = {
 	{ "dnsmasq_static_only",	"0"				, 0 },
 	{ "dnsmasq_q",			"0"				, 0 },	/* Bit0=quiet-dhcp, 1=dhcp6, 2=ra */
 	{ "dnsmasq_gen_names",		"0"				, 0 },
-	{ "dnsmasq_edns_size",		"1280"				, 0 },	/* dnsmasq EDNS packet size */
+	{ "dnsmasq_edns_size",		"1232"				, 0 },	/* dnsmasq EDNS packet size */
 	{ "dnsmasq_safe",		"0"				, 0 },	/* should dnsmasq starts in safe mode? (without custom config and /etc/dnsmasq.custom file */
 #ifdef TCONFIG_TOR
 	{ "dnsmasq_onion_support",	"0"				, 0 },
@@ -1054,11 +1058,7 @@ struct nvram_tuple router_defaults[] = {
 #endif
 	{ "wan4_qos_overhead",		"0"				, 0 },
 #endif /* TCONFIG_MULTIWAN */
-#if defined(TCONFIG_NVRAM_32K) || defined(TCONFIG_OPTIMIZE_SIZE)
 	{ "qos_orules",			"0<<-1<d<53<0<<0:10<<0<DNS"	, 0 },
-#else
-	{ "qos_orules",			"0<<-1<d<53<0<<0:10<<0<DNS>0<<-1<d<37<0<<0:10<<0<Time>0<<17<d<123<0<<0:10<<0<NTP>0<<-1<d<3455<0<<0:10<<0<RSVP>0<<-1<d<9<0<<0:50<<3<SCTP, Discard>0<<-1<x<135,2101,2103,2105<0<<<<3<RPC (Microsoft)>0<<17<d<3544<0<<<<-1<Teredo Tunnel>0<<6<x<22,2222<0<<<<2<SSH>0<<6<d<23,992<0<<<<2<Telnet>0<<6<s<80,5938,8080,2222<0<<<<2<Remote Access>0<<-1<x<3389<0<<<<2<Remote Assistance>0<<-1<x<1220,6970:7170,8554<0<<<<4<Quicktime/RealAudio>0<<-1<x<554,5004,5005<0<<<<4<RTP, RTSP>0<<-1<x<1755<0<<<<4<MMS (Microsoft)>0<<-1<d<3478,3479,5060:5063<0<<<<1<SIP, Sipgate Stun Services>0<<-1<s<53,88,3074<0<<<<1<Xbox Live>0<<6<d<1718:1720<0<<<<1<H323>0<<-1<d<4380,27000:27050,11031,11235:11335,11999,2300:2400,6073,28800:29100,47624<0<<<<1<Various Games>0<<-1<d<1493,1502,1503,1542,1863,1963,3389,5061,5190:5193,7001<0<<<<5<MSGR1 - Windows Live>0<<-1<d<1071:1074,1455,1638,1644,5000:5010,5050,5100,5101,5150,8000:8002<0<<<<5<MSGR2 - Yahoo>0<<-1<d<194,1720,1730:1732,5220:5223,5298,6660:6669,22555<0<<<<5<MSGR3 - Additional>0<<-1<d<19294:19310<0<<<<5<Google+ & Voice>0<<6<d<6005,6006<0<<<<5<Camfrog>0<<-1<x<6571,6891:6901<0<<<<5<WLM File/Webcam>0<<-1<x<29613<0<<<<5<Skype incoming>0<<6<x<4244,5242<0<<<<1<Viber TCP>0<<17<x<5243,9785<0<<<<1<Viber UDP>0<<17<x<3478:3497,16384:16387,16393:16402<0<<<<5<Apple Facetime/Game Center>0<<6<d<443<0<<0:512<<3<HTTPS>0<<6<d<443<0<<512:<<5<HTTPS>0<<17<d<443<0<<0:512<<3<QUIC>0<<17<d<443<0<<512:<<5<QUIC>0<<-1<a<<0<skypetoskype<<<1<Skype to Skype>0<<-1<a<<0<skypeout<<<-1<Skype Phone (deprecated)>0<<-1<a<<0<youtube-2012<<<4<YouTube 2012 (Youtube)>0<<-1<a<<0<httpvideo<<<4<HTTP Video (Youtube)>0<<-1<a<<0<flash<<<4<Flash Video (Youtube)>0<<-1<a<<0<rtp<<<4<RTP>0<<-1<a<<0<rtmp<<<4<RTMP>0<<-1<a<<0<shoutcast<<<4<Shoutcast>0<<-2<a<<0<rtmpt<<<4<RTMPT (RTMP over HTTP)>0<<-1<a<<0<irc<<<5<IRC>0<<6<d<80,8080<0<<0:512<<3<HTTP, HTTP Proxy>0<<6<d<80,8080<0<<512:<<7<HTTP, HTTP Proxy File Transfers>0<<6<d<20,21,989,990<0<<<<7<FTP>0<<6<d<25,587,465,2525<0<<<<6<SMTP, Submission Mail>0<<6<d<110,995<0<<<<6<POP3 Mail>0<<6<d<119,563<0<<<<7<NNTP News & Downloads>0<<6<d<143,220,585,993<0<<<<6<IMAP Mail>0<<17<d<1:65535<0<<<<8<P2P (uTP, UDP)" , 0 },
-#endif
 	{ "qos_burst0",			""				, 0 },
 	{ "qos_burst1",			""				, 0 },
 	{ "qos_default",		"8"				, 0 },
@@ -1271,7 +1271,7 @@ struct nvram_tuple router_defaults[] = {
 #ifdef TCONFIG_HFS
 	{ "usb_fs_hfs",			"0"				, 0 },
 #ifdef TCONFIG_BCMARM
-#ifdef TCONFIG_TUXERA_HFS
+#ifdef TCONFIG_TUX_HFS
 	{ "usb_hfs_driver",		"tuxera"			, 0 },
 #else
 	{ "usb_hfs_driver",		"kernel"			, 0 },
@@ -1643,6 +1643,73 @@ struct nvram_tuple router_defaults[] = {
 	{"tinc_subnet_down",		""				, 0 },
 	{"tinc_firewall",		""				, 0 },
 #endif /* TCONFIG_TINC */
+
+#ifdef TCONFIG_WIREGUARD
+	{"wg_adns",			""				, 0},
+	{"wg0_enable",			"0"				, 0 },
+	{"wg0_file",			""				, 0 },
+	{"wg0_key",			""				, 0 },
+	{"wg0_endpoint",		""				, 0 },
+	{"wg0_port",			""				, 0 },
+	{"wg0_ip",			"10.11.0.1/24"			, 0 },
+	{"wg0_fwmark",			"0"				, 0 },
+	{"wg0_mtu",			"1420"				, 0 },
+	{"wg0_preup",			""				, 0 },
+	{"wg0_postup",			""				, 0 },
+	{"wg0_predown",			""				, 0 },
+	{"wg0_postdown",		""				, 0 },
+	{"wg0_aip",			""				, 0 },
+	{"wg0_dns",			""				, 0 },
+	{"wg0_ka",			"0"				, 0 },
+	{"wg0_com",			"0"				, 0 },
+	{"wg0_lan",			"0"				, 0 },	/* push LANX for wg0 to peers: bit 0 = LAN0, bit 1 = LAN1, bit 2 = LAN2, bit 3 = WAN3 */
+	{"wg0_rgw",			"0"				, 0 },
+	{"wg0_route",			""				, 0 },
+	{"wg0_peer_dns",		""				, 0 },
+	{"wg0_peers",			""				, 0 },
+	{"wg1_enable",			"0"				, 0 },
+	{"wg1_file",			""				, 0 },
+	{"wg1_key",			""				, 0 },
+	{"wg1_endpoint",		""				, 0 },
+	{"wg1_port",			""				, 0 },
+	{"wg1_ip",			"10.12.0.1/24"			, 0 },
+	{"wg1_fwmark",			"0"				, 0 },
+	{"wg1_mtu",			"1420"				, 0 },
+	{"wg1_preup",			""				, 0 },
+	{"wg1_postup",			""				, 0 },
+	{"wg1_predown",			""				, 0 },
+	{"wg1_postdown",		""				, 0 },
+	{"wg1_aip",			""				, 0 },
+	{"wg1_dns",			""				, 0 },
+	{"wg1_ka",			"0"				, 0 },
+	{"wg1_com",			"0"				, 0 },
+	{"wg1_lan",			"0"				, 0 },	/* push LANX for wg1 to peers: bit 0 = LAN0, bit 1 = LAN1, bit 2 = LAN2, bit 3 = WAN3 */
+	{"wg1_rgw",			"0"				, 0 },
+	{"wg1_route",			""				, 0 },
+	{"wg1_peer_dns",		""				, 0 },
+	{"wg1_peers",			""				, 0 },
+	{"wg2_enable",			"0"				, 0 },
+	{"wg2_file",			""				, 0 },
+	{"wg2_key",			""				, 0 },
+	{"wg2_endpoint",		""				, 0 },
+	{"wg2_port",			""				, 0 },
+	{"wg2_ip",			"10.13.0.1/24"			, 0 },
+	{"wg2_fwmark",			"0"				, 0 },
+	{"wg2_mtu",			"1420"				, 0 },
+	{"wg2_preup",			""				, 0 },
+	{"wg2_postup",			""				, 0 },
+	{"wg2_predown",			""				, 0 },
+	{"wg2_postdown",		""				, 0 },
+	{"wg2_aip",			""				, 0 },
+	{"wg2_dns",			""				, 0 },
+	{"wg2_ka",			"0"				, 0 },
+	{"wg2_com",			"0"				, 0 },
+	{"wg2_lan",			"0"				, 0 },	/* push LANX for wg2 to peers: bit 0 = LAN0, bit 1 = LAN1, bit 2 = LAN2, bit 3 = WAN3 */
+	{"wg2_rgw",			"0"				, 0 },
+	{"wg2_route",			""				, 0 },
+	{"wg2_peer_dns",		""				, 0 },
+	{"wg2_peers",			""				, 0 },
+#endif /* TCONFIG_WIREGUARD */
 
 #ifdef TCONFIG_BT
 /* nas-transmission */

@@ -5,6 +5,7 @@ all:
 install:
 	install -d $(INSTALLDIR)/sbin
 	install -d $(INSTALLDIR)/usr/sbin
+	install -d $(INSTALLDIR)/usr/bin
 	install -d $(INSTALLDIR)/lib
 
 ifeq ($(TCONFIG_USB),y)
@@ -23,10 +24,18 @@ else
 endif
 # modem status script
 	install -m 0700 wwansignal $(INSTALLDIR)/usr/sbin
+# Only include curl part if libcurl is installed.
+ifneq ($(TCONFIG_BBT),y)
+	sed -i $(INSTALLDIR)/usr/sbin/wwansignal -e "/BBT-BEGIN/,/BBT-END/d"
+endif
 endif # TCONFIG_USB
 
 # MultiWAN watchdog script
-	install -m 0700 watchdog $(INSTALLDIR)/usr/sbin
+	install -m 0700 mwwatchdog $(INSTALLDIR)/usr/sbin
+# Only include curl part if libcurl is installed.
+ifneq ($(TCONFIG_BBT),y)
+	sed -i $(INSTALLDIR)/usr/sbin/mwwatchdog -e "/BBT-BEGIN/,/BBT-END/d"
+endif
 
 # ntp2ip
 ifeq ($(or $(TCONFIG_DNSCRYPT),$(TCONFIG_STUBBY)),y)
@@ -143,6 +152,9 @@ endif
 # system info
 	install -m 0700 sysinfo $(INSTALLDIR)/usr/sbin
 
+# nvram aliases used in other scripts
+	install -m 0700 nvram_ops $(INSTALLDIR)/usr/sbin
+
 # network discovery script for status-devices page
 ifeq ($(or $(TCONFIG_BCMARM),$(TCONFIG_MIPSR2)),y)
 	install -m 0755 discovery.sh $(INSTALLDIR)/usr/sbin
@@ -170,12 +182,13 @@ endif
 			-e "/STUBBYNO-BEGIN/d"	-e "/STUBBYNO-END/d" \
 			-e "/BCMARM-BEGIN/d"	-e "/BCMARM-END/d" \
 			-e "/BCMARMNO-BEGIN/d"	-e "/BCMARMNO-END/d" \
+			-e "/BBT-BEGIN/d"	-e "/BBT-END/d" \
 			|| true; \
 		done
 
 ifneq ($(TCONFIG_BCMARM),y)
 	cd $(INSTALLDIR)/usr/sbin && \
-		for F in switch3g switch4g wwansignal watchdog ntp2ip tomatoanon adblock ttb ethstate mymotd sysinfo-helper linkagg webmon_bkp optware-install.sh entware-install.sh updown-client.sh vpnrouting.sh cru sysinfo stealthMode gencert.sh; do \
+		for F in switch3g switch4g wwansignal mwwatchdog ntp2ip tomatoanon adblock ttb ethstate mymotd sysinfo-helper linkagg webmon_bkp optware-install.sh entware-install.sh updown-client.sh vpnrouting.sh cru sysinfo stealthMode gencert.sh; do \
 			[ -f $(INSTALLDIR)/usr/sbin/$$F ] && { \
 				sed -i $$F -e "/^#!/p" -e "/^\s*#/d"; \
 				sed -i $$F -e '/^\/\*\s*$$/,/\*\//! { s/^\s\+//; s/\s\+$$//; /^$$/d }'; \

@@ -6,6 +6,15 @@ body {
 	color: #000;
 }
 
+.alt-mode {
+	position: relative;
+	height: 100%;
+	width: 100%;
+	filter: brightness(80%) sepia(10%);
+	background-color: black;
+	background-image: none;
+}
+
 a {
 	text-decoration: none;
 	color: #af4141;
@@ -14,6 +23,10 @@ a {
 a:hover {
 	background: #BF6060;
 	color: #fff;
+}
+
+a:hover.status_devices {
+	background-color: inherit !important;
 }
 
 table {
@@ -239,7 +252,8 @@ ul.tabs a:hover,
 
 .tabs-bottom {
 	clear: both;
-	border-top: 12px solid #fff;
+	border-top: 12px solid;
+	opacity: 0;
 	padding: 0;
 }
 
@@ -597,11 +611,6 @@ img[id^="spin2"],
 	text-align: right;
 }
 
-#bwm-h-ctrl,
-#iperf_client_helper {
-	text-align: center;
-}
-
 .bwm-svg,
 .qos-svg {
 	border: none;
@@ -688,6 +697,7 @@ table.tomato-grid.vpn-status-table {
 	width: 99%;
 }
 
+div[id$="peers-grid"] .co6,
 #aft-grid .co1,
 #aft-grid .co2,
 #tg-grid .co3,
@@ -722,6 +732,15 @@ table.tomato-grid.vpn-status-table {
 	margin-bottom: 12px;
 }
 
+.import-section,
+.section-centered,
+.note-warning,
+#bwm-h-ctrl,
+#iperf_client_helper,
+div#ports td.title.indent2,
+#log-table .co3,
+#log-table-header .co3,
+#vlan-grid,
 #wlif-grid .co2,
 #wlif-grid .co3,
 #wlif-grid .co4,
@@ -739,6 +758,8 @@ table.tomato-grid.vpn-status-table {
 #adblock-grid .centered,
 #th-grid .centered,
 #pbr-grid .centered,
+#fo-grid .centered,
+#fo-grid6 .centered,
 div[id$="_ccd"] .centered,
 div[id$="_users"] .centered,
 div[id^="table_client"] td.co1,
@@ -759,6 +780,8 @@ div[id$="_users"] .co2 {
 	width: 17%;
 }
 
+div[id$="peers-grid"] .co3,
+div[id$="peers-grid"] .co4,
 #th-grid .co3 {
 	width: 29%;
 }
@@ -865,6 +888,7 @@ div[id$="_users"] .co2 {
 	background: #95a9d5;
 }
 
+.import-section,
 #term-div table {
 	width: 100%;
 }
@@ -915,6 +939,7 @@ div[id$="_users"] .co2 {
 	width: 15%;
 }
 
+div[id$="peers-grid"] .co8,
 #dev-grid .co4 {
 	width: 16%;
 }
@@ -1027,6 +1052,8 @@ img[id^="barnoise_"] {
 	width: 23%;
 }
 
+.afu-form input,
+.import-file,
 #qos-cl-grid .x2c {
 	width: 41%;
 }
@@ -1138,40 +1165,29 @@ div[id$="_users"] .co1 {
 	text-align: center;
 }
 
+#fo-grid .co1,
 #fo-grid6 .co1 {
-	width: 25px;
+	width: 6%;
 	text-align: center;
 }
 
 #fo-grid .co2,
 #fo-grid .co4,
+#fo-grid .co5,
 #fo-grid6 .co2,
 #fo-grid6 .co5 {
-	width: 80px;
+	width: 10%;
 }
 
+#fo-grid .co3,
+#fo-grid .co6,
 #fo-grid6 .co3,
 #fo-grid6 .co4 {
-	width: 140px;
+	width: 15%;
 }
 
-#fo-grid .co1 {
-	width: 25px;
-	text-align: center;
-}
-
-#fo-grid .co3 {
-	width: 120px;
-}
-
-#fo-grid .co5 {
-	width: 55px;
-}
-
-#fo-grid .co6 {
-	width: 110px;
-}
-
+div[id$="peers-grid"] .co1,
+div[id$="peers-grid"] .co2,
 #bwlg-grid .co1 {
 	width: 3%;
 	text-align: center;
@@ -1209,10 +1225,6 @@ div[id$="_users"] .co1 {
 
 #bs-grid .co3 {
 	width: 120px;
-}
-
-#vlan-grid {
-	text-align: center;
 }
 
 #vlan-grid .co2 {
@@ -1358,11 +1370,6 @@ div[id$="_users"] .co1 {
 	width: 1%;
 }
 
-#log-table .co3,
-#log-table-header .co3 {
-	text-align: center;
-}
-
 #fmsg {
 	background: #b55;
 	color: #fff;
@@ -1381,10 +1388,6 @@ div[id$="_users"] .co1 {
 
 .afu-form {
 	padding-bottom: 15px;
-}
-
-div#ports td.title.indent2 {
-	text-align: center;
 }
 
 span#qos_numtotalconn {
@@ -1422,10 +1425,6 @@ div#unknown_router > .section-title {
 	text-align: center;
 }
 
-.section-centered {
-	text-align: center;
-}
-
 #notice {
 	background: #ffc;
 	border: 1px solid #cbb;
@@ -1444,10 +1443,6 @@ div#unknown_router > .section-title {
 	padding: 0.5em;
 	margin: 1em;
 	font-size: 0.9em
-}
-
-.note-warning {
-	text-align: center;
 }
 
 .about {

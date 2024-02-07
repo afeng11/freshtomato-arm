@@ -129,6 +129,9 @@ const aspapi_t aspapi[] = {
 #ifdef TCONFIG_PPTPD
 	{ "pptpd_userol",		asp_pptpd_userol		},
 #endif
+#ifdef TCONFIG_WIREGUARD
+	{ "wgstat",				asp_wgstat		},
+#endif
 	{ "wlstats",			asp_wlstats			},
 	{ "wlclient",			asp_wlclient			},
 	{ "wlnoise",			asp_wlnoise			},
@@ -224,7 +227,7 @@ static const nvset_t nvset_list[] = {
 	{ "wan_status_script",		V_01				},
 #endif
 	{ "wan_ckmtd",			V_LENGTH(1, 2)			},	/* check method: 1 - ping, 2 - traceroute, 3 - curl */
-	{ "wan_ck_pause",		V_01				},	/* skip watchdog check for this wan */
+	{ "wan_ck_pause",		V_01				},	/* skip mwwatchdog check for this wan */
 
 #ifdef TCONFIG_MULTIWAN
 	{ "mwan_num",			V_RANGE(1, 4)			},
@@ -274,7 +277,7 @@ static const nvset_t nvset_list[] = {
 	{ "wan2_status_script",		V_01				},
 #endif
 	{ "wan2_ckmtd",			V_LENGTH(1, 2)			},	/* check method: 1 - ping, 2 - traceroute, 3 - curl */
-	{ "wan2_ck_pause",		V_01				},	/* skip watchdog check for this wan */
+	{ "wan2_ck_pause",		V_01				},	/* skip mwwatchdog check for this wan */
 
 #ifdef TCONFIG_MULTIWAN
 	{ "wan3_proto",			V_LENGTH(1, 16)			},	/* disabled, dhcp, static, pppoe, pptp, l2tp */
@@ -310,7 +313,7 @@ static const nvset_t nvset_list[] = {
 	{ "wan3_status_script",		V_01				},
 #endif
 	{ "wan3_ckmtd",			V_LENGTH(1, 2)			},	/* check method: 1 - ping, 2 - traceroute, 3 - curl */
-	{ "wan3_ck_pause",		V_01				},	/* skip watchdog check for this wan */
+	{ "wan3_ck_pause",		V_01				},	/* skip mwwatchdog check for this wan */
 
 	{ "wan4_proto",			V_LENGTH(1, 16)			},	/* disabled, dhcp, static, pppoe, pptp, l2tp */
 	{ "wan4_weight",		V_RANGE(0, 256)			},
@@ -345,7 +348,7 @@ static const nvset_t nvset_list[] = {
 	{ "wan4_status_script",		V_01				},
 #endif
 	{ "wan4_ckmtd",			V_LENGTH(1, 2)			},	/* check method: 1 - ping, 2 - traceroute, 3 - curl */
-	{ "wan4_ck_pause",		V_01				},	/* skip watchdog check for this wan */
+	{ "wan4_ck_pause",		V_01				},	/* skip mwwatchdog check for this wan */
 #endif /* TCONFIG_MULTIWAN */
 
 	/* LAN */
@@ -503,8 +506,11 @@ static const nvset_t nvset_list[] = {
 	{ "wl_key4",			V_LENGTH(0, 26)			},
 	{ "wl_crypto",			V_LENGTH(3, 8)			},	/* tkip, aes, tkip+aes */
 	{ "wl_wpa_psk",			V_LENGTH(8, 64)			},
-	{ "wl_wpa_gtk_rekey",		V_RANGE(60, 7200)		},
-
+#if defined(TCONFIG_BLINK) || defined(TCONFIG_BCMARM) /* RT-N+ */
+	{ "wl_wpa_gtk_rekey",		V_RANGE(0, 2592000)		},	/* 0 - disabled; range 1 sec up to 30 days (2592000 sec) */
+#else
+	{ "wl_wpa_gtk_rekey",		V_RANGE(60, 7200)		},	/* keep good old range for K26 (SDK5.10) */
+#endif
 	{ "wl_lazywds",			V_01				},
 	{ "wl_wds",			V_LENGTH(0, 180)		},	/* mac mac mac (x 10) */
 
@@ -1712,6 +1718,74 @@ static const nvset_t nvset_list[] = {
 	{ "pptp_client_dfltroute",	V_01				},
 	{ "pptp_client_stateless",	V_01				},
 	{ "pptpd_chap",			V_RANGE(0, 2)			},
+#endif
+
+#ifdef TCONFIG_WIREGUARD
+/* wireguard */
+	{ "wg_adns",			V_NONE				},
+	{ "wg0_enable",			V_01				},
+	{ "wg0_file",			V_TEXT(0, 64)			},
+	{ "wg0_key",			V_TEXT(0, 44)			},
+	{ "wg0_endpoint",		V_NONE				},
+	{ "wg0_port",			V_NONE				},
+	{ "wg0_ip",			V_TEXT(0, 32)			},
+	{ "wg0_fwmark",			V_TEXT(0, 8)			},
+	{ "wg0_mtu",			V_RANGE(0, 1500)		},
+	{ "wg0_preup",			V_NONE				},
+	{ "wg0_postup",			V_NONE				},
+	{ "wg0_predown",		V_NONE				},
+	{ "wg0_postdown",		V_NONE				},
+	{ "wg0_aip",			V_TEXT(0, 128)			},
+	{ "wg0_dns",			V_NONE				},
+	{ "wg0_ka",			V_01				},
+	{ "wg0_com",			V_RANGE(0, 3)			},
+	{ "wg0_lan",			V_RANGE(0, 15)			},	/* push LANX for wg0 to peers: bit 0 = LAN0, bit 1 = LAN1, bit 2 = LAN2, bit 3 = WAN3 */
+	{ "wg0_rgw",			V_01				},
+	{ "wg0_route",			V_NONE				},
+	{ "wg0_peer_dns",		V_TEXT(0, 128)			},
+	{ "wg0_peers",			V_NONE				},
+	{ "wg1_enable",			V_01				},
+	{ "wg1_file",			V_TEXT(0, 64)			},
+	{ "wg1_key",			V_TEXT(0, 44)			},
+	{ "wg1_endpoint",		V_NONE				},
+	{ "wg1_port",			V_NONE				},
+	{ "wg1_ip",			V_TEXT(0, 32)			},
+	{ "wg1_fwmark",			V_TEXT(0, 8)			},
+	{ "wg1_mtu",			V_RANGE(0, 1500)		},
+	{ "wg1_preup",			V_NONE				},
+	{ "wg1_postup",			V_NONE				},
+	{ "wg1_predown",		V_NONE				},
+	{ "wg1_postdown",		V_NONE				},
+	{ "wg1_aip",			V_TEXT(0, 128)			},
+	{ "wg1_dns",			V_NONE				},
+	{ "wg1_ka",			V_01				},
+	{ "wg1_com",			V_RANGE(0, 3)			},
+	{ "wg1_lan",			V_RANGE(0, 15)			},	/* push LANX for wg1 to peers: bit 0 = LAN0, bit 1 = LAN1, bit 2 = LAN2, bit 3 = WAN3 */
+	{ "wg1_rgw",			V_01				},
+	{ "wg1_route",			V_NONE				},
+	{ "wg1_peer_dns",		V_TEXT(0, 128)			},
+	{ "wg1_peers",			V_NONE				},
+	{ "wg2_enable",			V_01				},
+	{ "wg2_file",			V_TEXT(0, 64)			},
+	{ "wg2_key",			V_TEXT(0, 44)			},
+	{ "wg2_endpoint",		V_NONE				},
+	{ "wg2_port",			V_NONE				},
+	{ "wg2_ip",			V_TEXT(0, 32)			},
+	{ "wg2_fwmark",			V_TEXT(0, 8)			},
+	{ "wg2_mtu",			V_RANGE(0, 1500)		},
+	{ "wg2_preup",			V_NONE				},
+	{ "wg2_postup",			V_NONE				},
+	{ "wg2_predown",		V_NONE				},
+	{ "wg2_postdown",		V_NONE				},
+	{ "wg2_aip",			V_TEXT(0, 128)			},
+	{ "wg2_dns",			V_NONE				},
+	{ "wg2_ka",			V_01				},
+	{ "wg2_com",			V_RANGE(0, 3)			},
+	{ "wg2_lan",			V_RANGE(0, 15)			},	/* push LANX for wg2 to peers: bit 0 = LAN0, bit 1 = LAN1, bit 2 = LAN2, bit 3 = WAN3 */
+	{ "wg2_rgw",			V_01				},
+	{ "wg2_route",			V_NONE				},
+	{ "wg2_peer_dns",		V_TEXT(0, 128)			},
+	{ "wg2_peers",			V_NONE				},
 #endif
 
 	{ NULL }

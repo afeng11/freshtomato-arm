@@ -1,4 +1,4 @@
-/* dnsmasq is Copyright (c) 2000-2023 Simon Kelley
+/* dnsmasq is Copyright (c) 2000-2024 Simon Kelley
  
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
@@ -14,7 +14,7 @@
    along with this program.  If not, see <http://www.gnu.org/licenses/>.
 */
 
-#define COPYRIGHT "Copyright (c) 2000-2023 Simon Kelley"
+#define COPYRIGHT "Copyright (c) 2000-2024 Simon Kelley"
 
 /* We do defines that influence behavior of stdio.h, so complain
    if included too early. */
@@ -281,7 +281,8 @@ struct event_desc {
 #define OPT_NORR           69
 #define OPT_NO_IDENT       70
 #define OPT_CACHE_RR       71
-#define OPT_LAST           72
+#define OPT_LOCALHOST_SERVICE  72
+#define OPT_LAST           73
 
 #define OPTION_BITS (sizeof(unsigned int)*8)
 #define OPTION_SIZE ( (OPT_LAST/OPTION_BITS)+((OPT_LAST%OPTION_BITS)!=0) )
@@ -1252,8 +1253,8 @@ extern struct daemon {
   struct server *srv_save; /* Used for resend on DoD */
   size_t packet_len;       /*      "        "        */
   int    fd_save;          /*      "        "        */
-  pid_t tcp_pids[MAX_PROCS];
-  int tcp_pipes[MAX_PROCS];
+  pid_t *tcp_pids;
+  int *tcp_pipes;
   int pipe_to_parent;
   int numrrand;
   struct randfd *randomsocks;
@@ -1313,6 +1314,8 @@ extern struct daemon {
   /* file for packet dumps. */
   int dumpfd;
 #endif
+  int max_procs;
+  uint max_procs_used;
 } *daemon;
 
 struct server_details {
@@ -1603,6 +1606,7 @@ void lease_update_from_configs(void);
 int do_script_run(time_t now);
 void rerun_scripts(void);
 void lease_find_interfaces(time_t now);
+void lease_calc_fqdns(void);
 #ifdef HAVE_SCRIPT
 void lease_add_extradata(struct dhcp_lease *lease, unsigned char *data, 
 			 unsigned int len, int delim);

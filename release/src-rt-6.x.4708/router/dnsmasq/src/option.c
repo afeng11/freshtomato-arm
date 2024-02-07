@@ -1,4 +1,4 @@
-/* dnsmasq is Copyright (c) 2000-2023 Simon Kelley
+/* dnsmasq is Copyright (c) 2000-2024 Simon Kelley
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
@@ -190,6 +190,7 @@ struct myoption {
 #define LOPT_FILTER_RR     381
 #define LOPT_NO_DHCP6      382
 #define LOPT_NO_DHCP4      383
+#define LOPT_MAX_PROCS     384
 
 #ifdef HAVE_GETOPT_LONG
 static const struct option opts[] =  
@@ -221,7 +222,7 @@ static const struct myoption opts[] =
     { "domain-suffix", 1, 0, 's' },
     { "interface", 1, 0, 'i' },
     { "listen-address", 1, 0, 'a' },
-    { "local-service", 0, 0, LOPT_LOCAL_SERVICE },
+    { "local-service", 2, 0, LOPT_LOCAL_SERVICE },
     { "bogus-priv", 0, 0, 'b' },
     { "bogus-nxdomain", 1, 0, 'B' },
     { "ignore-address", 1, 0, LOPT_IGNORE_ADDR },
@@ -384,6 +385,7 @@ static const struct myoption opts[] =
     { "fast-dns-retry", 2, 0, LOPT_FAST_RETRY },
     { "use-stale-cache", 2, 0 , LOPT_STALE_CACHE },
     { "no-ident", 0, 0, LOPT_NO_IDENT },
+    { "max-tcp-connections", 1, 0, LOPT_MAX_PROCS },
     { NULL, 0, 0, 0 }
   };
 
@@ -571,7 +573,7 @@ static struct {
   { LOPT_QUIET_DHCP6, OPT_QUIET_DHCP6, NULL, gettext_noop("Do not log routine DHCPv6."), NULL },
   { LOPT_QUIET_RA, OPT_QUIET_RA, NULL, gettext_noop("Do not log RA."), NULL },
   { LOPT_LOG_DEBUG, OPT_LOG_DEBUG, NULL, gettext_noop("Log debugging information."), NULL }, 
-  { LOPT_LOCAL_SERVICE, OPT_LOCAL_SERVICE, NULL, gettext_noop("Accept queries only from directly-connected networks."), NULL },
+  { LOPT_LOCAL_SERVICE, ARG_ONE, NULL, gettext_noop("Accept queries only from directly-connected networks."), NULL },
   { LOPT_LOOP_DETECT, OPT_LOOP_DETECT, NULL, gettext_noop("Detect and remove DNS forwarding loops."), NULL },
   { LOPT_IGNORE_ADDR, ARG_DUP, "<ipaddr>", gettext_noop("Ignore DNS responses containing ipaddr."), NULL }, 
   { LOPT_DHCPTTL, ARG_ONE, "<ttl>", gettext_noop("Set TTL in DNS responses with DHCP-derived addresses."), NULL }, 
@@ -585,6 +587,7 @@ static struct {
   { LOPT_NORR, OPT_NORR, NULL, gettext_noop("Suppress round-robin ordering of DNS records."), NULL },
   { LOPT_NO_IDENT, OPT_NO_IDENT, NULL, gettext_noop("Do not add CHAOS TXT records."), NULL },
   { LOPT_CACHE_RR, ARG_DUP, "<RR-type>", gettext_noop("Cache this DNS resource record type."), NULL },
+  { LOPT_MAX_PROCS, ARG_ONE, "<integer>", gettext_noop("Maximum number of concurrent tcp connections."), NULL },
   { 0, 0, NULL, NULL, NULL }
 }; 
 
@@ -1279,6 +1282,17 @@ static char *domain_rev6(int from_file, char *server, struct in6_addr *addr6, in
   return NULL;
 }
 
+static void if_names_add(const char *ifname)
+{
+  struct iname *new = opt_malloc(sizeof(struct iname));
+  new->next = daemon->if_names;
+  daemon->if_names = new;
+  /* new->name may be NULL if someone does
+     "interface=" to disable all interfaces except loop. */
+  new->name = opt_string_alloc(ifname);
+  new->flags = 0;
+}
+
 #ifdef HAVE_DHCP
 
 static int is_tag_prefix(char *arg)
@@ -1407,7 +1421,6 @@ static void dhcp_opt_free(struct dhcp_opt *opt)
   free(opt->val);
   free(opt);
 }
-
 
 /* This is too insanely large to keep in-line in the switch */
 static int parse_dhcp_opt(char *errstr, char *arg, int flags)
@@ -2832,14 +2845,8 @@ static int one_opt(int option, char *arg, char *errstr, char *gen_err, int comma
       
     case 'i':  /* --interface */
       do {
-	struct iname *new = opt_malloc(sizeof(struct iname));
-	comma = split(arg);
-	new->next = daemon->if_names;
-	daemon->if_names = new;
-	/* new->name may be NULL if someone does
-	   "interface=" to disable all interfaces except loop. */
-	new->name = opt_string_alloc(arg);
-	new->flags = 0;
+        comma = split(arg);
+	if_names_add(arg);
 	arg = comma;
       } while (arg);
       break;
@@ -3405,6 +3412,15 @@ static int one_opt(int option, char *arg, char *errstr, char *gen_err, int comma
 	ret_err(gen_err);
       else if (daemon->max_logs > 100)
 	daemon->max_logs = 100;
+      break;
+
+    case LOPT_LOCAL_SERVICE:  /* --local-service */
+      if (!arg || !strcmp(arg, "net"))
+	set_option_bool(OPT_LOCAL_SERVICE);
+      else if (!strcmp(arg, "host"))
+	set_option_bool(OPT_LOCALHOST_SERVICE);
+      else
+	ret_err(gen_err);
       break;  
 
     case 'P': /* --edns-packet-max */
@@ -5313,7 +5329,17 @@ err:
 	break;
       }
 #endif
-		
+
+    case LOPT_MAX_PROCS: /* --max-tcp-connections */
+      {
+	int max_procs;
+	/* Don't accept numbers less than 1. */
+	if (!atoi_check(arg, &max_procs) || max_procs < 1)
+	  ret_err(gen_err);
+	daemon->max_procs = max_procs;
+	break;
+      }
+
     default:
       ret_err(_("unsupported option (check that dnsmasq was compiled with DHCP/TFTP/DNSSEC/DBus support)"));
       
@@ -5734,11 +5760,11 @@ static void clear_dynamic_conf(void)
     }
 }
 
-static void clear_dynamic_opt(void)
+static void clear_dhcp_opt(struct dhcp_opt **dhcp_opts)
 {
   struct dhcp_opt *opts, *cp, **up;
 
-  for (up = &daemon->dhcp_opts, opts = daemon->dhcp_opts; opts; opts = cp)
+  for (up = dhcp_opts, opts = *dhcp_opts; opts; opts = cp)
     {
       cp = opts->next;
       
@@ -5750,6 +5776,14 @@ static void clear_dynamic_opt(void)
       else
 	up = &opts->next;
     }
+}
+
+static void clear_dynamic_opt(void)
+{
+  clear_dhcp_opt(&daemon->dhcp_opts);
+#ifdef HAVE_DHCP6
+  clear_dhcp_opt(&daemon->dhcp_opts6);
+#endif
 }
 
 void reread_dhcp(void)
@@ -5833,6 +5867,8 @@ void read_opts(int argc, char **argv, char *compile_opts)
   daemon->soa_expiry = SOA_EXPIRY;
   daemon->randport_limit = 1;
   daemon->host_index = SRC_AH;
+  daemon->max_procs = MAX_PROCS;
+  daemon->max_procs_used = 0;
   
   /* See comment above make_servers(). Optimises server-read code. */
   mark_servers(0);
@@ -6130,7 +6166,16 @@ void read_opts(int argc, char **argv, char *compile_opts)
   /* If there's access-control config, then ignore --local-service, it's intended
      as a system default to keep otherwise unconfigured installations safe. */
   if (daemon->if_names || daemon->if_except || daemon->if_addrs || daemon->authserver)
-    reset_option_bool(OPT_LOCAL_SERVICE); 
+    {
+      reset_option_bool(OPT_LOCAL_SERVICE);
+      reset_option_bool(OPT_LOCALHOST_SERVICE);
+    }
+  else if (option_bool(OPT_LOCALHOST_SERVICE) && !option_bool(OPT_LOCAL_SERVICE))
+    {
+      /* listen only on localhost, emulate --interface=lo --bind-interfaces */
+      if_names_add(NULL);
+      set_option_bool(OPT_NOWILD);
+    }
 
   if (testmode)
     {

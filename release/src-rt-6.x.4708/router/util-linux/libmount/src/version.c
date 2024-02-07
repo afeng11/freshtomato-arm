@@ -38,11 +38,14 @@ static const char *lib_features[] = {
 #ifdef USE_LIBMOUNT_SUPPORT_NAMESPACES
 	"namespaces",
 #endif
-#ifdef HAVE_MOUNTFD_API
+#if defined(HAVE_MOUNTFD_API) && defined(HAVE_LINUX_MOUNT_H)
 	"idmapping",
 #endif
 #ifdef USE_LIBMOUNT_MOUNTFD_SUPPORT
 	"fd-based-mount",
+#endif
+#if defined(HAVE_STATX) && defined(HAVE_STRUCT_STATX) && defined(AT_STATX_DONT_SYNC)
+	"statx",
 #endif
 #if !defined(NDEBUG)
 	"assert",	/* libc assert.h stuff */

@@ -171,7 +171,7 @@ extern void do_wan_routes(char *ifname, int metric, int add, char *prefix);
 extern void preset_wan(char *ifname, char *gw, char *netmask, char *prefix);
 
 /* mwan.c */
-extern int get_sta_wan_prefix(char *sPrefix);
+extern int get_sta_wan_prefix(char *sPrefix, const size_t buf_sz);
 extern void get_wan_info(char *sPrefix);
 extern void mwan_table_add(char *sPrefix);
 extern void mwan_table_del(char *sPrefix);
@@ -316,6 +316,10 @@ extern void del_snmp_defaults(void);
 #endif /* TCONFIG_SNMP */
 extern void add_upnp_defaults(void);
 extern void del_upnp_defaults(void);
+#ifdef TCONFIG_BCMBSD
+extern void add_bsd_defaults(void);
+extern void del_bsd_defaults(void);
+#endif /* TCONFIG_BCMBSD */
 
 /* usb.c */
 #ifdef TCONFIG_USB
@@ -370,9 +374,9 @@ extern void ip6t_write(const char *format, ...);
 #endif /* TCONFIG_IPV6 */
 extern void ipt_log_unresolved(const char *addr, const char *addrtype, const char *categ, const char *name);
 extern int ipt_addr(char *addr, int maxlen, const char *s, const char *dir, int af, int strict, const char *categ, const char *name);
-extern int ipt_dscp(const char *v, char *opt);
-extern int ipt_ipp2p(const char *v, char *opt);
-extern int ipt_layer7(const char *v, char *opt);
+extern int ipt_dscp(const char *v, char *opt, const size_t buf_sz);
+extern int ipt_ipp2p(const char *v, char *opt, const size_t buf_sz);
+extern int ipt_layer7(const char *v, char *opt, const size_t buf_sz);
 #define ipt_source_strict(s, src, categ, name) ipt_addr(src, 64, s, "src", IPT_V4, 1, categ, name)
 #define ipt_source(s, src, categ, name) ipt_addr(src, 64, s, "src", IPT_V4, 0, categ, name)
 extern int start_firewall(void);
@@ -444,7 +448,7 @@ extern void setup_conntrack(void);
 extern void remove_conntrack(void);
 extern int host_addr_info(const char *name, int af, struct sockaddr_storage *buf);
 extern int host_addrtypes(const char *name, int af);
-extern void inc_mac(char *mac, int plus);
+extern void inc_mac(char *mac, int plus, const size_t buf_sz);
 extern void set_mac(const char *ifname, const char *nvname, int plus);
 extern const char *default_wanif(void);
 extern void simple_unlock(const char *name);
@@ -568,11 +572,24 @@ extern void stop_ovpn_client(int clientNum);
 extern void start_ovpn_server(int serverNum);
 extern void stop_ovpn_server(int serverNum);
 extern void start_ovpn_eas(void);
-extern void stop_ovpn_eas(void);
+//extern void stop_ovpn_eas(void);
 extern void stop_ovpn_all(void);
 extern void run_ovpn_firewall_scripts(void);
 extern void write_ovpn_dnsmasq_config(FILE*);
 extern int write_ovpn_resolv(FILE*);
+#endif
+
+/* wireguard.c */
+#ifdef TCONFIG_WIREGUARD
+#define WG_KEY_LEN 32
+#define WG_KEY_LEN_BASE64 ((((WG_KEY_LEN) + 2) / 3) * 4 + 1)
+extern void start_wg_eas(void);
+//extern void stop_wg_eas(void);
+extern void stop_wg_all(void);
+extern void start_wireguard(int unit);
+extern void stop_wireguard(int unit);
+extern void run_wg_firewall_scripts(void);
+extern void write_wg_dnsmasq_config(FILE* f);
 #endif
 
 /* tinc.c */
@@ -590,6 +607,11 @@ extern void stop_bwlimit(void);
 /* arpbind.c */
 extern void start_arpbind(void);
 extern void stop_arpbind(void);
+
+/* arpreq.c */
+#ifdef TCONFIG_BCMWL6
+extern int send_arpreq(void);
+#endif /* TCONFIG_BCMWL6 */
 
 /* mmc.c */
 #ifdef TCONFIG_SDHC

@@ -45,7 +45,9 @@
 
 #include "mountP.h"
 #include "fileutils.h"	/* statx() fallback */
+#include "strutils.h"
 #include "mount-api-utils.h"
+#include "linux_version.h"
 
 #include <inttypes.h>
 
@@ -120,12 +122,23 @@ static inline int fsconfig_set_value(
 			const char *name, const char *value)
 {
 	int rc;
+	char *p = NULL;
 
-	DBG(HOOK, ul_debugobj(hs, "  fsconfig(name=%s,value=%s)", name,
+	if (value && strstr(value, "\\,")) {
+		p = strdup(value);
+		if (!p)
+			return -EINVAL;
+
+		strrem(p, '\\');
+		value = p;
+	}
+
+	DBG(HOOK, ul_debugobj(hs, "  fsconfig(name=\"%s\" value=\"%s\")", name,
 				value ? : ""));
-	if (value)
+	if (value) {
 		rc = fsconfig(fd, FSCONFIG_SET_STRING, name, value, 0);
-	else
+		free(p);
+	} else
 		rc = fsconfig(fd, FSCONFIG_SET_FLAG, name, NULL, 0);
 
 	set_syscall_status(cxt, "fsconfig", rc == 0);
@@ -153,12 +166,19 @@ static int configure_superblock(struct libmnt_context *cxt,
 		const char *name = mnt_opt_get_name(opt);
 		const char *value = mnt_opt_get_value(opt);
 		const struct libmnt_optmap *ent = mnt_opt_get_mapent(opt);
+		const int is_linux = ent && mnt_opt_get_map(opt) == cxt->map_linux;
 
-		if (ent && mnt_opt_get_map(opt) == cxt->map_linux &&
-		    ent->id == MS_RDONLY) {
+		if (is_linux && ent->id == MS_RDONLY) {
+			/* Use ro/rw for superblock (for backward compatibility) */
 			value = NULL;
 			has_rwro = 1;
+
+		} else if (is_linux && ent->mask & MNT_SUPERBLOCK) {
+			/* Use some old MS_* (VFS) flags as superblock flags */
+			;
+
 		} else if (!name || mnt_opt_get_map(opt) || mnt_opt_is_external(opt))
+			/* Ignore VFS flags, userspace and external options */
 			continue;
 
 		rc = fsconfig_set_value(cxt, hs, fd, name, value);
@@ -286,18 +306,21 @@ static int hook_create_mount(struct libmnt_context *cxt,
 		/* cleanup after fail (libmount may only try the FS type) */
 		close_sysapi_fds(api);
 
+#if defined(HAVE_STATX) && defined(HAVE_STRUCT_STATX) && defined(HAVE_STRUCT_STATX_STX_MNT_ID)
 	if (!rc && cxt->fs) {
 		struct statx st;
 
 		rc = statx(api->fd_tree, "", AT_EMPTY_PATH, STATX_MNT_ID, &st);
-		cxt->fs->id = (int) st.stx_mnt_id;
-
-		if (cxt->update) {
-			struct libmnt_fs *fs = mnt_update_get_fs(cxt->update);
-			if (fs)
-				fs->id = cxt->fs->id;
+		if (rc == 0) {
+			cxt->fs->id = (int) st.stx_mnt_id;
+			if (cxt->update) {
+				struct libmnt_fs *fs = mnt_update_get_fs(cxt->update);
+				if (fs)
+					fs->id = cxt->fs->id;
+			}
 		}
 	}
+#endif
 
 done:
 	DBG(HOOK, ul_debugobj(hs, "create FS done [rc=%d, id=%d]", rc, cxt->fs ? cxt->fs->id : -1));
@@ -462,7 +485,7 @@ static int hook_set_propagation(struct libmnt_context *cxt,
 			(uint64_t) attr.propagation));
 
 		rc = mount_setattr(api->fd_tree, "", flgs, &attr, sizeof(attr));
-		set_syscall_status(cxt, "move_setattr", rc == 0);
+		set_syscall_status(cxt, "mount_setattr", rc == 0);
 
 		if (rc && errno == EINVAL)
 			return -MNT_ERR_APPLYFLAGS;
@@ -568,9 +591,6 @@ static int init_sysapi(struct libmnt_context *cxt,
 	if (!api)
 		return -ENOMEM;
 
-	if (mnt_context_is_fake(cxt))
-		goto fake;
-
 	if (path) {
 		api->fd_tree = open_mount_tree(cxt, path, flags);
 		if (api->fd_tree < 0)
@@ -603,10 +623,6 @@ static int init_sysapi(struct libmnt_context *cxt,
 fail:
 	DBG(HOOK, ul_debugobj(hs, "init fs/tree failed [errno=%d %m]", errno));
 	return -errno;
-fake:
-	DBG(CXT, ul_debugobj(cxt, " FAKE (-f)"));
-	cxt->syscall_status = 0;
-	return 0;
 }
 
 static int force_classic_mount(struct libmnt_context *cxt)
@@ -719,6 +735,13 @@ static int hook_prepare(struct libmnt_context *cxt,
 	if (!rc
 	    && cxt->helper == NULL
 	    && (set != 0 || clr != 0 || (flags & MS_REMOUNT))) {
+		/*
+		 * mount_setattr() supported, but not usable for remount
+		 * https://github.com/torvalds/linux/commit/dd8b477f9a3d8edb136207acb3652e1a34a661b7
+		 */
+		if (get_linux_version() < KERNEL_VERSION(5, 14, 0))
+			goto enosys;
+
 		if (!mount_setattr_is_supported())
 			goto enosys;
 

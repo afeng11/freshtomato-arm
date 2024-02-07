@@ -9,6 +9,8 @@ export PATH=/bin:/usr/bin:/sbin:/usr/sbin:/home/root:
 #
 
 
+. nvram_ops
+
 PREFIX="$1"
 
 PID=$$
@@ -17,37 +19,33 @@ READYFILE="/tmp/switch4g_$PREFIX.ready"
 DIAGSFILE="/tmp/switch4g_$PREFIX.diags"
 STATEFILE="/var/lib/misc/"$PREFIX"_state"
 PATHDIAG="/sys/bus/usb/devices"
-MODE=$(nvram get "$PREFIX"_proto)
+PATHWAN="/sys/class/net"
+MODE=$(NG "$PREFIX"_proto)
 LOGS="logger -t switch4g[$PID]"
+COUNT_KILL=0 
 
 
 [ -z "$PREFIX" ] && {
-	echo "usage: switch4g INTERFACE [connect|disconnect|signal]"
+	echo "usage: $0 INTERFACE [connect|disconnect|signal|reset]"
 	exit 0
 }
 
-[ ! "$MODE" == "lte" ] && {
-	exit 0
-}
+[ ! "$MODE" == "lte" ] && exit 0
 
-
-NV() {
-	nvram get "$1"
-}
 
 connect() {
-	MTYPE=$(NV "$PREFIX"_modem_type)
-	DEVNR=$(NV "$PREFIX"_modem_dev)
-	APN=$(NV "$PREFIX"_modem_apn)
-	SPEED=$(NV "$PREFIX"_modem_speed)
-	BAND=$(NV "$PREFIX"_modem_band)
-	ROAMING=$(NV "$PREFIX"_modem_roam)
-	IFA=$(NV "$PREFIX"_ifname)
+	MTYPE=$(NG "$PREFIX"_modem_type)
+	DEVNR=$(NG "$PREFIX"_modem_dev)
+	APN=$(NG "$PREFIX"_modem_apn)
+	SPEED=$(NG "$PREFIX"_modem_speed)
+	BAND=$(NG "$PREFIX"_modem_band)
+	ROAMING=$(NG "$PREFIX"_modem_roam)
+	IFA=$(NG "$PREFIX"_ifname)
 	local TTY DEVALL SYSCFGEX CGPADDR TXTLOG MODESPEED MODEROAM MODEBAND CONNECTED=0 COUNT=1 DONE=0 i
 	local SPEEDTXT ROAMTXT BANDTXT RESSPEED RSPEEDTXT RESROAM RROAMTXT RESBAND RBANDTXT
 
 	[ "$MTYPE" == "non-hilink" -o "$MTYPE" == "huawei-non-hilink" -o "$MTYPE" == "hw-ether" -o "$MTYPE" == "qmi_wwan" ] && {
-		[ -e "$DEVNR" ] || wayOut "4G MODEM - DIAG interface not found - connection terminated!"
+		[ -n "$DEVNR" ] || wayOut "4G MODEM - DIAG interface not found: connection terminated!"
 	}
 
 	$LOGS "4G MODEM - connecting ..."
@@ -82,7 +80,7 @@ connect() {
 		esac
 
 		TTY=$(cat "$DIAGSFILE" | sed "s~"$DEVNR"~~")
-		DEVALL="$DEVNR $TTY $DEVNR $TTY $DEVNR $TTY"	# try 3x on every interface
+		DEVALL="$DEVNR $TTY $DEVNR $TTY $DEVNR $TTY" # try 3x on every interface
 
 		while [ "$CONNECTED" -eq 0 ]; do
 			for i in $DEVALL; do
@@ -164,9 +162,9 @@ connect() {
 				[ "$(echo "$CGPADDR" | grep "+CGPADDR:" | wc -l)" -eq 1 ] && {
 					$LOGS "4G MODEM - connected (device $i) ..."
 					CONNECTED=1
-					[ "$(NV "$PREFIX"_modem_dev)" != "$i" ] && {
-						nvram set "$PREFIX"_modem_dev="$i"
-						nvram commit
+					[ "$(NG "$PREFIX"_modem_dev)" != "$i" ] && {
+						NS "$PREFIX"_modem_dev="$i"
+						NC
 					}
 					break
 				} || {
@@ -179,13 +177,13 @@ connect() {
 			# still not connected?
 			[ "$CONNECTED" -eq 0 ] && {
 				disconnect
-				[ "$(NV mwan_cktime)" -gt 0 ] && {
+				[ "$(NG mwan_cktime)" -gt 0 ] && {
 					modemReset
-					watchdog add
-					wayOut "4G MODEM - connection failed - watchdog enabled"
+					mwwatchdog add
+					wayOut "4G MODEM - connection failed: mwwatchdog enabled"
 				} || {
-					watchdog del
-					wayOut "4G MODEM - connection failed - process terminated!"
+					mwwatchdog del
+					wayOut "4G MODEM - connection failed: process terminated!"
 				}
 			}
 		done
@@ -216,27 +214,32 @@ connect() {
 		sleep 6
 
 		# try to clear previous autoconnect state
-		uqmiCall "--stop-network 0xffffffff --autoconnect"
+		uqmiCall "-t 1000 --stop-network 0xffffffff --autoconnect"
+		uqmiCall "-t 1000 --set-ip-family ipv6 --stop-network 0xffffffff --autoconnect"
 
-		uqmiCall "--set-data-format 802.3"
-		uqmiCall "--wda-set-data-format 802.3"
-		DATAFORMAT=$(uqmiCall "--wda-get-data-format")
+		# go online
+		uqmiCall "-t 1000 --set-device-operating-mode online"
+
+		# set IP format
+		uqmiCall "-t 1000 --set-data-format 802.3"
+		uqmiCall "-t 1000 --wda-set-data-format 802.3"
+		DATAFORMAT=$(uqmiCall "-t 1000 --wda-get-data-format")
 
 		[ "$DATAFORMAT" == '"raw-ip"' ] && {
-			[ -f /sys/class/net/$IFA/qmi/raw_ip ] || {
-				wayOut "Device only supports raw-ip mode but is missing this required driver attribute: /sys/class/net/$IFA/qmi/raw_ip"
-			}
+			[ -f $PATHWAN/$IFA/qmi/raw_ip ] || wayOut "Device only supports raw-ip mode but is missing this required driver attribute: $PATHWAN/$IFA/qmi/raw_ip"
 
 			$LOGS "4G MODEM - device does not support 802.3 mode. Informing driver of raw-ip only for $IFA ..."
-			echo "Y" > /sys/class/net/$IFA/qmi/raw_ip
+			echo "Y" > $PATHWAN/$IFA/qmi/raw_ip
 		}
 
-		uqmiCall "--sync"
+		uqmiCall "-t 1000 --sync"
+		uqmiCall "-t 20000 --network-register"
 
 		$LOGS "4G MODEM - waiting for network registration ..."
+		sleep 5
 
-		while [ $(echo "$(uqmiCall "--get-serving-system")" | grep searching | wc -l) -ne 0 ]; do
-			[ -e "$DEVNR" ] || wayOut "4G MODEM - DIAG interface not found!"
+		while [ $(echo "$(uqmiCall "-t 1000 --get-serving-system")" | grep searching | wc -l) -ne 0 ]; do
+			[ -n "$DEVNR" ] || wayOut "4G MODEM - DIAG interface not found!"
 			[ "$TIMECOUNT" -lt "$TIMEOUT" ] && {
 				TIMECOUNT=$((TIMECOUNT+1))
 				sleep 1
@@ -246,68 +249,68 @@ connect() {
 		done
 
 		# set network type (all,lte,umts,cdma,td-scdma)
-		uqmiCall "--set-network-modes $SPEEDTXT"
+		uqmiCall "-t 1000 --set-network-modes $SPEEDTXT"
 		$LOGS "4G MODEM - network type is set to '$SPEEDTXT'"
 
 		# set roaming
-		uqmiCall "--set-network-roaming $ROAMTXT"
+		uqmiCall "-t 1000 --set-network-roaming $ROAMTXT"
 		$LOGS "4G MODEM - roaming is set to '$ROAMTXT'"
 
 		# get client id for wds
-		CLID=$(uqmiCall "--get-client-id wds")
+		CLID=$(uqmiCall "-t 1000 --get-client-id wds")
 
 		[ $? -ne 0 ] && wayOut "4G MODEM - unable to obtain client ID!"
 
-		nvram set "$PREFIX"_modem_clid="$CLID"
+		NS "$PREFIX"_modem_clid="$CLID"
 		$LOGS "4G MODEM - got new client ID: $CLID"
 
-		uqmiCall "--set-client-id wds,$CLID --set-ip-family ipv4"
+		uqmiCall "-t 5000 --set-client-id wds,$CLID --set-ip-family ipv4"
 
 		while [ "$CONNECTED" -eq 0 ]; do
 			[ "$COUNT" -lt 6 ] && {
 				# connect
-				PDH=$(uqmiCall "--set-client-id wds,$CLID --start-network" 1)
+				PDH=$(uqmiCall "-t 5000 --set-client-id wds,$CLID --start-network" 1)
 
 				case $PDH in
 				     ''|*[!0-9]*)
-						$LOGS "4G MODEM - connection failed: $PDH (device $DEVNR) [$COUNT] ..."
+						$LOGS "4G MODEM - connection failed: (device $DEVNR) session ID: $PDH [$COUNT] ..."
 						COUNT=$((COUNT+1))
 						sleep 5
 					;;
 				     *)
-						$LOGS "4G MODEM - connected (device $DEVNR) - session ID: $PDH"
-						nvram set "$PREFIX"_modem_pdh="$PDH"
+						$LOGS "4G MODEM - connected (device $DEVNR) session ID: $PDH"
+						NS "$PREFIX"_modem_pdh="$PDH"
 						CONNECTED=1
 						break
 					;;
 				esac
 			} || {
 				# checked 5 times but still not connected?
-				uqmiCall "--set-client-id wds,$CLID --release-client-id wds"
+				uqmiCall "-t 5000 --set-client-id wds,$CLID --release-client-id wds"
 
-				[ "$(NV mwan_cktime)" -gt 0 ] && {
+				[ "$(NG mwan_cktime)" -gt 0 ] && {
 					modemReset
-					watchdog add
-					wayOut "4G MODEM - connection failed - watchdog enabled"
+					mwwatchdog add
+					wayOut "4G MODEM - connection failed: mwwatchdog enabled"
 				} || {
-					watchdog del
-					wayOut "4G MODEM - connection failed - process terminated!"
+					mwwatchdog del
+					wayOut "4G MODEM - connection failed: process terminated!"
 				}
 			}
 		done
 
 		# check data connection state
-		CONNSTAT=$(uqmiCall "--get-data-status")
+		CONNSTAT=$(uqmiCall "-t 1000 --get-data-status")
 		[ "$CONNSTAT" == '"connected"' ] || {
-			uqmiCall "--set-client-id wds,$CLID --release-client-id wds"
+			uqmiCall "-t 5000 --set-client-id wds,$CLID --release-client-id wds"
 
-			[ "$(NV mwan_cktime)" -gt 0 ] && {
+			[ "$(NG mwan_cktime)" -gt 0 ] && {
 				modemReset
-				watchdog add
-				wayOut "4G MODEM - no data link - watchdog enabled"
+				mwwatchdog add
+				wayOut "4G MODEM - no data link: mwwatchdog enabled"
 			} || {
-				watchdog del
-				wayOut "4G MODEM - no data link - process terminated!"
+				mwwatchdog del
+				wayOut "4G MODEM - no data link: process terminated!"
 			}
 		}
 	fi
@@ -321,13 +324,13 @@ connect() {
 		dhcpc-renew $PREFIX
 		sleep 1
 
-		[ "$(ifconfig | grep "$IFA" | wc -l)" -eq 0 ] && {
+		ifconfig | grep "$IFA" || {
 			$LOGS "4G MODEM - WAN IFACE not ready ($IFA) [$COUNT] ..."
 			COUNT=$((COUNT+1))
 			sleep 2
-		} || {
+		} && {
 			# TODO: IP is up only every 2nd attempt - temporary fix
-			[ "$(ifconfig | grep -A1 "$IFA" | grep 'inet addr' | wc -l)" -eq 0 ] && {
+			ifconfig | grep -A1 "$IFA" | grep 'inet addr' || {
 				dhcpc-release $PREFIX
 				sleep 1
 				dhcpc-renew $PREFIX
@@ -340,46 +343,46 @@ connect() {
 	done
 
 	[ "$DONE" -eq 0 ] && {
-		[ "$(NV mwan_cktime)" -gt 0 ] && {
-			watchdog add
-			wayOut "4G MODEM - WAN IFACE failed - watchdog enabled"
+		[ "$(NG mwan_cktime)" -gt 0 ] && {
+			mwwatchdog add
+			wayOut "4G MODEM - WAN IFACE failed: mwwatchdog enabled"
 		} || {
-			watchdog del
-			wayOut "4G MODEM - WAN IFACE failed - connection process terminated!"
+			mwwatchdog del
+			wayOut "4G MODEM - WAN IFACE failed: connection process terminated!"
 		}
 	}
 
 	echo "1" > $STATEFILE
-	watchdog add
+	mwwatchdog add
 }
 
 disconnect() {
-	MTYPE=$(NV "$PREFIX"_modem_type)
-	DEVNR=$(NV "$PREFIX"_modem_dev)
-	CLID=$(NV "$PREFIX"_modem_clid)
-	PDH=$(NV "$PREFIX"_modem_pdh)
+	MTYPE=$(NG "$PREFIX"_modem_type)
+	DEVNR=$(NG "$PREFIX"_modem_dev)
+	CLID=$(NG "$PREFIX"_modem_clid)
+	PDH=$(NG "$PREFIX"_modem_pdh)
 	local DEVALL j
 
 	$LOGS "4G MODEM - disconnecting ..."
-	watchdog del
+	mwwatchdog del
 	dhcpc-release $PREFIX
 
 	if [ "$MTYPE" == "non-hilink" -o "$MTYPE" == "huawei-non-hilink" -o "$MTYPE" == "hw-ether" ]; then
 		DEVALL="$DEVNR $(cat "$DIAGSFILE" | sed "s~"$DEVNR"~~")"
 
-		for j in $DEVALL; do	# on every interface
+		for j in $DEVALL; do # on every interface
 			MODE="AT^NDISDUP=1,0" gcom -d "$j" -s /etc/gcom/setmode.gcom
 			sleep 2
 		done
 	elif [ "$MTYPE" == "qmi_wwan" ]; then
 		[ -n "$CLID" ] || return
-		uqmiCall "--set-client-id wds,$CLID --stop-network 0xffffffff --autoconnect"
+		uqmiCall "-t 5000 --set-client-id wds,$CLID --stop-network 0xffffffff --autoconnect"
 
-		[ -n "$PDH" ] && uqmiCall "--set-client-id wds,$CLID --stop-network $PDH"
+		[ -n "$PDH" ] && uqmiCall "-t 5000 --set-client-id wds,$CLID --stop-network $PDH"
 
-		uqmiCall "--set-client-id wds,$CLID --release-client-id wds"
-		nvram set "$PREFIX"_modem_pdh=""
-		nvram set "$PREFIX"_modem_clid=""
+		uqmiCall "-t 5000 --set-client-id wds,$CLID --release-client-id wds"
+		NS "$PREFIX"_modem_pdh=""
+		NS "$PREFIX"_modem_clid=""
 
 		$LOGS "4G MODEM - release Client ID: $CLID"
 	fi
@@ -388,37 +391,45 @@ disconnect() {
 }
 
 switchMode() {
-	VENDOR="" PRODUCT="" MTYPE="" MODULE="" DEVICENAME=""	# global
+	VENDOR="" PRODUCT="" MTYPE="" MODULE="" DEVICENAME="" SWITCHED=0 # global
 # BCMARM-BEGIN
-	MODULES="qmi_wwan cdc_ether huawei_cdc_ncm cdc_ncm rndis_host"
+	MODULES="qmi_wwan huawei_cdc_ncm cdc_ncm rndis_host cdc_ether"
 # BCMARM-END
 # BCMARMNO-BEGIN
-	MODULES="qmi_wwan cdc_ether huawei_ether cdc_ncm rndis_host"
+	MODULES="qmi_wwan huawei_ether cdc_ncm rndis_host cdc_ether"
 # BCMARMNO-END
-	local COUNT=1 SWITCHED=0 DVDP=0 PATHDEV SWITCH DEVICES IFN_BEFORE DV DP DB DG
 
-	for MODULE in $MODULES; do	# remove modules
+	# first remove modules
+	for MODULE in $MODULES; do
 		modprobe -r $MODULE
 	done
 
 	$LOGS "4G MODEM - detecting ..."
 
+	switchMe
+
+	[ "$SWITCHED" -eq 0 ] && $LOGS "4G MODEM - not found in USB_ModeSwitch database, already switched? Loading modules..."
+}
+
+switchMe() {
+	local COUNT=1 DVDP=0 PATHDEV SWITCH DEVICES IFN_BEFORE DV DP DB DG
+
 	# detect modem
 	DEVICES=$(lsusb | awk '{print $6}')
 
 	for SWITCH in $DEVICES; do
-		[ "$(ls /etc/usb_modeswitch.d/"$SWITCH" 2> /dev/null | wc -l)" -eq 1 ] && {
+		[ "$(ls /etc/usb_modeswitch.d/"$SWITCH" 2>/dev/null | wc -l)" -eq 1 ] && {
 			# search for devicename & other data
 			for DEVICENAME in $(ls "$PATHDIAG"/ | grep -v ":" | grep "-"); do
 				PATHDEV="$PATHDIAG/$DEVICENAME"
-				[ -f $PATHDEV/idVendor -a -f $PATHDEV/idProduct -a -f $PATHDEV/uevent ] || continue	# skip
+				[ -f $PATHDEV/idVendor -a -f $PATHDEV/idProduct -a -f $PATHDEV/uevent ] || continue # skip
 
-				DV=$(cat "$PATHDEV"/idVendor)					# vendor
-				DP=$(cat "$PATHDEV"/idProduct)					# product
+				DV=$(cat "$PATHDEV"/idVendor 2>/dev/null)			# vendor
+				DP=$(cat "$PATHDEV"/idProduct 2>/dev/null)			# product
 				DB=$(grep -s ^BUSNUM "$PATHDEV"/uevent | cut -d "=" -f2)	# BUSNUM
 				DG=$(grep -s ^DEVNUM "$PATHDEV"/uevent | cut -d "=" -f2)	# DEVNUM
 
-				[ "$DV" == "$(echo "$SWITCH" | cut -d ":" -f1)" -a "$DP" == "$(echo "$SWITCH" | cut -d ":" -f2)" ] && {		# self
+				[ "$DV" == "$(echo "$SWITCH" | cut -d ":" -f1)" -a "$DP" == "$(echo "$SWITCH" | cut -d ":" -f2)" ] && { # self
 					DVDP=1
 					break
 				}
@@ -436,7 +447,7 @@ switchMode() {
 					COUNT=$((COUNT+1))
 				done
 
-				$LOGS "4G MODEM FOUND - $SWITCH - switching ..."
+				$LOGS "4G MODEM FOUND - $SWITCH: switching ..."
 
 				/usr/sbin/usb_modeswitch -Q -c /etc/usb_modeswitch.d/$SWITCH -v $DV -p $DP -b $DB -g $DG
 
@@ -452,64 +463,59 @@ switchMode() {
 				sleep 1
 
 				VENDOR=$(cat /etc/usb_modeswitch.d/"$SWITCH" | grep TargetVendor | cut -d "=" -f2 | cut -d "x" -f2)
-				[ -z "$VENDOR" ] && VENDOR=$(cat "$PATHDEV"/idVendor)
+				[ -z "$VENDOR" ] && VENDOR=$(cat "$PATHDEV"/idVendor 2>/dev/null)
 
-				PRODUCT=$(cat "$PATHDEV"/idProduct)
+				PRODUCT=$(cat "$PATHDEV"/idProduct 2>/dev/null)
 				[ -n "$PRODUCT" ] && {
-					$LOGS "4G MODEM ready - $VENDOR:$PRODUCT"
+					$LOGS "4G MODEM - ready: $VENDOR:$PRODUCT"
 					SWITCHED=1
 					break
 				}
 			}
 		}
 	done
-
-	[ "$SWITCHED" -eq 0 ] && {
-		$LOGS "4G MODEM not found in USB_ModeSwitch database - already switched? Loading modules..."
-	}
 }
 
 searchWAN() {
 	# search WAN interface (usbX, ethX, wwanX)
-	WAN=""	# global
-	local PATHWAN="/sys/class/net" FOUND=0
+	WAN="" WANS="" # global
+	local FOUND=0
 
 	for MODULE in $MODULES; do
 		modprobe $MODULE
 		sleep 1
 
-	# TODO: add a delayed loop?
 		# check if interface is up
 		for WAN in $(ls $PATHWAN/ | grep -e eth -e usb -e wwan); do
 			[ -f $PATHWAN/$WAN/uevent -a -f $PATHWAN/$WAN/device/uevent ] || continue
 
-			# check if interface has our $MODULE
+			# check if interface has our MODULE
 			[ "$(grep -s ^DRIVER $PATHWAN/$WAN/device/uevent | cut -d "=" -f2)" == "$MODULE" ] && {
+				WANS="$WANS $WAN:$(ls $PATHWAN/$WAN/device/ | grep usb | cut -d ":" -f2)"
+				$LOGS "4G MODEM - found WAN(s): $WANS"
 				FOUND=1
-				break 2
-			} || {
-				continue
 			}
 		done
+		[ "$FOUND" -eq 1 ] && break
 
-		$LOGS "4G MODEM WAN ($MODULE) not found ..."
+		$LOGS "4G MODEM - WAN ($MODULE) not found ..."
 		modprobe -r $MODULE
 		sleep 1
 	done
 
 	[ "$FOUND" -eq 1 ] && {
-		findType	# MODULE --> MTYPE
+		findType # MODULE --> MTYPE
 
-		nvram set "$PREFIX"_ifname="$WAN"
-		nvram set "$PREFIX"_modem_type="$MTYPE"
-		$LOGS "4G MODEM WAN ($MTYPE) found - using $MODULE module and $WAN as WAN"
+		NS "$PREFIX"_ifname="$WAN"
+		NS "$PREFIX"_modem_type="$MTYPE"
+		$LOGS "4G MODEM - WAN ($MTYPE) found: using $MODULE module and $WAN as WAN"
 	} || {
-		[ "$(NV mwan_cktime)" -gt 0 ] && {
-			watchdog add
-			wayOut "4G MODEM WAN not found - watchdog enabled"
+		[ "$(NG mwan_cktime)" -gt 0 ] && {
+			mwwatchdog add
+			wayOut "4G MODEM - WAN not found: mwwatchdog enabled"
 		} || {
-			watchdog del
-			wayOut "4G MODEM WAN not found - connection process terminated!"
+			mwwatchdog del
+			wayOut "4G MODEM - WAN not found: connection process terminated!"
 		}
 	}
 }
@@ -520,12 +526,12 @@ isDiag() {
 
 searchDiag() {
 	DEVNR=""
-	local TTYS="" UQMIRET="" UQMIPID="" n
-	local PATHDEV
+	local TTYS="" UQMIRET="" UQMIPID=""
+	local PATHDEV WAN IFACE TTY
 
-	[ -z "$DEVICENAME" ] && DEVICENAME=$(ls -d /sys/class/net/$WAN/device/driver/*[0-9-:\.] | tr "\n" " " | sed -e "s/.*\/\//.*/g" -e "s/.*\///g" -e "s/:.*//g")
-	[ -z "$VENDOR" ] && VENDOR=$(cat "$PATHDIAG"/"$DEVICENAME"/idVendor)
-	[ -z "$PRODUCT" ] && PRODUCT=$(cat "$PATHDIAG"/"$DEVICENAME"/idProduct)
+	[ -z "$DEVICENAME" ] && DEVICENAME=$(ls -d $PATHWAN/$WAN/device/driver/*[0-9-:\.] 2>/dev/null | tr "\n" " " | sed -e "s/.*\/\//.*/g" -e "s/.*\///g" -e "s/:.*//g")
+	[ -z "$VENDOR" ] && VENDOR=$(cat "$PATHDIAG"/"$DEVICENAME"/idVendor 2>/dev/null)
+	[ -z "$PRODUCT" ] && PRODUCT=$(cat "$PATHDIAG"/"$DEVICENAME"/idProduct 2>/dev/null)
 
 	if [ "$MTYPE" == "non-hilink" -o "$MTYPE" == "huawei-non-hilink" -o "$MTYPE" == "hw-ether" ]; then
 		isDiag # --> TTYS
@@ -540,12 +546,12 @@ searchDiag() {
 					insmod usbserial vendor=0x$VENDOR product=0x$PRODUCT
 				} || {
 					# VENDOR/PRODUCT unknown, so try for every possible device...
-					for DEVICENAME in $(ls /sys/bus/usb/devices/ | grep -v ":" | grep "-"); do
+					for DEVICENAME in $(ls "$PATHDIAG"/ | grep -v ":" | grep "-"); do
 						PATHDEV="$PATHDIAG/$DEVICENAME"
 						[ -f $PATHDEV/idVendor -a -f $PATHDEV/idProduct -a -f $PATHDEV/uevent ] || continue # skip
 
-						VENDOR=$(cat "$PATHDEV"/idVendor)	# vendor
-						PRODUCT=$(cat "$PATHDEV"/idProduct)	# product
+						VENDOR=$(cat "$PATHDEV"/idVendor 2>/dev/null)	# vendor
+						PRODUCT=$(cat "$PATHDEV"/idProduct 2>/dev/null)	# product
 						$LOGS "4G MODEM - try to load usbserial module ($VENDOR:$PRODUCT) for device $DEVICENAME ..."
 
 						modprobe -r usbserial
@@ -554,7 +560,7 @@ searchDiag() {
 						isDiag # --> TTYS
 						[ -n "$TTYS" ] && {
 							# found
-							$LOGS "4G MODEM found - using usbserial module"
+							$LOGS "4G MODEM - found: using usbserial module"
 							break
 						}
 					done
@@ -566,11 +572,11 @@ searchDiag() {
 		}
 
 		[ -n "$TTYS" ] && {
-			$LOGS "4G MODEM ready - DIAG(s) found ($TTYS)"
+			$LOGS "4G MODEM - ready: DIAG(s) found ($TTYS)"
 			echo $TTYS > $DIAGSFILE
 			DEVNR=$(echo "$TTYS" | cut -d " " -f1)
-			nvram set "$PREFIX"_modem_dev="$DEVNR"
-			nvram set "$PREFIX"_modem_devicename="$DEVICENAME"
+			NS "$PREFIX"_modem_dev="$DEVNR"
+			NS "$PREFIX"_modem_devicename="$DEVICENAME"
 		}
 
 	elif [ "$MTYPE" == "qmi_wwan" ]; then
@@ -579,21 +585,31 @@ searchDiag() {
 		[ -n "$TTYS" ] && {
 			$LOGS "4G MODEM - DIAG(s) found ($TTYS)"
 
-			for n in $TTYS; do
-				DEVNR="/dev/$n"
-				uqmiCall "--get-capabilities" 2 # in background
+			for TTY in $TTYS; do
+				DEVNR="/dev/$TTY"
+				uqmiCall "-t 3000 --get-capabilities" 2 # in a background
 				sleep 2
-				UQMIPID=$(ps | grep [g]et-capabilities | cut -d ' ' -f1)
-				[ -n "$UQMIPID" ] && { # hangs?
-					DEVNR=""
+
+				UQMIPID=$(ps | grep [g]et-capabilities | awk '{print $1}')
+				# hangs?
+				[ -n "$UQMIPID" ] && {
 					kill -9 $UQMIPID
-					sleep 1
-				} || { # it works
-					UQMIRET=$(uqmiCall "--get-capabilities")
+					sleep 2
+					DEVNR=""
+				# it works
+				} || {
+					# check which WWAN is the working one (if more than one diag is found)
+					for WAN in $WANS; do
+						IFACE=$(echo $WAN | cut -d ":" -f1)
+						[ "/dev/$(echo $WAN | cut -d ":" -f2)" == "$DEVNR" ] && {
+							$LOGS "4G MODEM - setting/updating WAN: $IFACE"
+							NS "$PREFIX"_ifname="$IFACE"
+						}
+					done
 
-					$LOGS "**** 4G MODEM - UQMIRET: $UQMIRET" # TEMP
-
-					case "$UQMIRET" in # final check
+					# final check
+					UQMIRET=$(uqmiCall "-t 3000 --get-capabilities")
+					case "$UQMIRET" in
 					     *data_service*) break ;;
 					esac
 				}
@@ -603,21 +619,21 @@ searchDiag() {
 			[ -n "$DEVNR" ] && {
 				TTYS="$DEVNR"
 				echo $TTYS > $DIAGSFILE
-				$LOGS "4G MODEM ready - working DIAG is ($TTYS)"
-				nvram set "$PREFIX"_modem_dev="$TTYS"
-				nvram set "$PREFIX"_modem_devicename="$DEVICENAME"
+				$LOGS "4G MODEM - ready: working DIAG is ($TTYS)"
+				NS "$PREFIX"_modem_dev="$TTYS"
+				NS "$PREFIX"_modem_devicename="$DEVICENAME"
 			}
 		}
 	fi
 
 	[ -z "$TTYS" ] && {
-		[ "$(NV mwan_cktime)" -gt 0 ] && {
-			watchdog add
+		[ "$(NG mwan_cktime)" -gt 0 ] && {
+			mwwatchdog add
 			modemReset
-			wayOut "4G MODEM - DIAG(s) not found - watchdog enabled"
+			wayOut "4G MODEM - DIAG(s) not found: mwwatchdog enabled"
 		} || {
-			watchdog del
-			wayOut "4G MODEM - DIAG(s) not found - connection process terminated!"
+			mwwatchdog del
+			wayOut "4G MODEM - DIAG(s) not found: connection process terminated!"
 		}
 	}
 }
@@ -641,12 +657,12 @@ findType() {
 }
 
 modemReset() {
-# TODO: reset should be made also when the X connection fails at a given time
-	local DNAME=$(NV "$PREFIX"_modem_devicename)
+	# TODO: reset should also be performed if the connection fails X times at any given time
+	local DNAME=$(NG "$PREFIX"_modem_devicename)
 
 	$LOGS "4G MODEM - resetting the modem $DNAME ..."
 
-	rm -f $READYFILE > /dev/null 2>&1
+	rm -f $READYFILE &>/dev/null
 
 	echo 0 > "$PATHDIAG"/"$DNAME"/authorized
 	sleep 1
@@ -654,38 +670,69 @@ modemReset() {
 }
 
 setPIN() {
-	local PIN=$(NV "$PREFIX"_modem_pin)
-	local IS_PIN=$(NV "$PREFIX"_modem_pin | wc -w)
-	local IS_DONE=0 COUNT=1 TIMEOUT=30 PINVAL DEVALL i
+	local PIN=$(NG "$PREFIX"_modem_pin)
+	local IS_DONE=0 COUNT=1 TIMEOUT PINVAL DEVALL STATUS PIN_STATUS PIN_VERIFY_TRIES PIN_EXT_STATUS=0
+
+	$LOGS "4G MODEM - waiting for SIM initialization"
+
+	[ -n "$DEVNR" ] || { wayOut "4G MODEM - DIAG interface not found!" ; }
 
 	[ "$MTYPE" == "non-hilink" -o "$MTYPE" == "huawei-non-hilink" -o "$MTYPE" == "hw-ether" ] && {
-		[ "$IS_PIN" -eq 1 ] && {
-			DEVALL="$DEVNR $(cat "$DIAGSFILE" | sed "s~"$DEVNR"~~")"
-
-			for i in $DEVALL; do	# find working interface
-				[ -z $(MODE="ATI" gcom -d "$i" -s /etc/gcom/setverbose.gcom | grep "OK" | tr -d '\r') ] && {
-					sleep 2
-					continue
+		MODE="AT+CFUN=1" gcom -d "$DEVNR" -s /etc/gcom/setverbose.gcom # set as online mode (default value)
+		STATUS=$(MODE="AT^CPIN?" gcom -d "$DEVNR" -s /etc/gcom/setverbose.gcom) # extended PIN status (ie. Huawei modems)
+		[ "$(echo "$STATUS" | grep ERR)" ] && { # error?
+			COUNT=1
+			while [ "$COUNT" -lt 4 ]; do # try 3 times
+				MODE="AT+CFUN=1" gcom -d "$DEVNR" -s /etc/gcom/setverbose.gcom # set as online mode (default value)
+				STATUS=$(MODE="AT+CPIN?" gcom -d "$DEVNR" -s /etc/gcom/setverbose.gcom) # std PIN status
+				[ "$(echo "$STATUS" | grep ERR)" ] && {
+					COUNT=$((COUNT+1))
+					sleep 1
+				} || {
+					[ -n "$PIN" ] && { wayOut "4G MODEM - Error reading SIM status!"; }
 				}
-
-				PINVAL=$(PINCODE="$PIN" gcom -d "$i" -s /etc/gcom/setpin.gcom)
-				[ "$(echo "$PINVAL" | grep successfully | wc -l)" -eq 1 ] && {
-					nvram set "$PREFIX"_modem_dev="$i"
-					IS_DONE=1
-					$LOGS "4G MODEM - PIN successfully verified"
-				}
-				# try only once on working interface (do not lock the sim)
-				break
 			done
+
+			PIN_STATUS=$(echo "$STATUS" | grep CPIN | cut -d ":" -f2 | awk '{$1=$1};1')
+		} || {
+			PIN_EXT_STATUS=1
+			PIN_STATUS=$(echo "$STATUS" | grep CPIN | cut -d ":" -f2 | awk '{$1=$1};1' | cut -d "," -f1)
+			PIN_VERIFY_TRIES=$(echo "$STATUS" | grep CPIN | cut -d "," -f4)
 		}
+
+		# verify pin
+		case "$PIN_STATUS" in
+			"READY")
+				$LOGS "4G MODEM - PIN verification is not required"
+				IS_DONE=1
+				;;
+			"SIM PUK")
+				wayOut "4G MODEM - SIM locked PUK required"
+				;;
+			"SIM PIN" | "SIM PIN2")
+				[ "$PIN_EXT_STATUS" -eq "1" -a "$PIN_VERIFY_TRIES" -lt "3" ] && { wayOut "4G MODEM - PIN verify count value is $PIN_VERIFY_TRIES this is below the limit of 3" ; }
+				[ -n "$PIN" ] && {
+					PINVAL=$(MODE="AT+CPIN=\"$PIN\"" gcom -d "$DEVNR" -s /etc/gcom/setverbose.gcom)
+					[ "$(echo "$PINVAL" | grep ERR)" ] && { wayOut "4G MODEM - Unable to verify PIN" ; }
+					IS_DONE=1
+				} || {
+					wayOut "4G MODEM - PIN not specified but required"
+				}
+				;;
+			*)
+				wayOut "4G MODEM - PIN status failed (${PIN_STATUS:-sim_not_present})"
+			;;
+		esac
 	}
 
 	[ "$MTYPE" == "qmi_wwan" ] && {
-		$LOGS "4G MODEM - Waiting for SIM initialization"
+		# timeout 3s for first call to avoid hanging uqmi
+		uqmiCall "-t 3000 --get-pin-status"
 
-		while uqmiCall "--get-pin-status" | grep '"UIM uninitialized"'; do
-			[ -e "$DEVNR" ] || wayOut "4G MODEM - DIAG interface not found!"
-			[ "$COUNT" -lt "$TIMEOUT" ] && {
+		while uqmiCall "-t 1000 --get-pin-status" | grep '"UIM uninitialized"'; do
+			[ -n "$DEVNR" ] || { wayOut "4G MODEM - DIAG interface not found!" ; }
+
+			[ "$COUNT" -lt 30 ] && {
 				COUNT=$((COUNT+1))
 				sleep 1
 			} || {
@@ -693,17 +740,82 @@ setPIN() {
 			}
 		done
 
-		# verify pin (TODO: more complex)
-		[ "$IS_PIN" -eq 1 ] && {
-			[ "$($(uqmiCall "--get-pin-status") | cut -d "," -f1 | cut -d ":" -f2 | cut -d "\"" -f2)" != "disabled" ] && {
-				uqmiCall "--verify-pin1 $PIN" && IS_DONE=1
+		# check if UIM application is stuck in illegal state
+		COUNT=1
+		while true; do
+			STATUS=$(uqmiCall "-t 1000 --uim-get-sim-state" | cut -d "," -f2 | cut -d ":" -f2 | tr -d '"')
+
+			# SIM card is either completely absent or state is labeled as illegal
+			# try to power-cycle the SIM card to recover from this state
+			[ -z "$STATUS" -o "$STATUS" == "illegal" ] && {
+				$LOGS "4G MODEM - SIM in illegal state: Power-cycling SIM"
+
+				# try to reset SIM application
+				uqmiCall "-t 1000 --uim-power-off --uim-slot 1"
+				sleep 3
+				uqmiCall "-t 1000 --uim-power-on --uim-slot 1"
+
+				[ "$COUNT" -lt 10 ] && {
+					COUNT=$((COUNT+1))
+					sleep 1
+					continue
+				}
+
+				# recovery failed
+				wayOut "4G MODEM - SIM recovery failed!"
+			} || {
+				break
 			}
-		}
+		done
+
+		# verify pin
+		if uqmiCall "-t 1000 --uim-get-sim-state" | grep -q '"Not supported"\|"Invalid QMI command"' && uqmiCall "-t 1000 --get-pin-status" | grep -q '"Not supported"\|"Invalid QMI command"' ; then
+			[ -n "$PIN" ] && {
+				uqmiCall "-t 1000 --verify-pin1 $PIN" || uqmiCall "-t 1000 --uim-verify-pin1 $PIN" || { wayOut "4G MODEM - Unable to verify PIN!" ; }
+				IS_DONE=1
+			}
+		else
+			STATUS=$(uqmiCall "-t 1000 --get-pin-status")
+			PIN_STATUS=$(echo "$STATUS" | cut -d "," -f1 | cut -d ":" -f2 | tr -d '"')
+			PIN_VERIFY_TRIES=$(echo "$STATUS" | cut -d "," -f2 | cut -d ":" -f2)
+
+			[ -z "$PIN_STATUS" ] && {
+				STATUS=$(uqmiCall "-t 1000 --uim-get-sim-state")
+				PIN_STATUS=$(echo "$STATUS" | cut -d "," -f3 | cut -d ":" -f2 | tr -d '"')
+				PIN_VERIFY_TRIES=$(echo "$STATUS" | cut -d "," -f4 | cut -d ":" -f2)
+			}
+
+			case "$PIN_STATUS" in
+				disabled)
+					$LOGS "4G MODEM - PIN verification is disabled"
+					IS_DONE=1
+					;;
+				blocked)
+					wayOut "4G MODEM - SIM locked PUK required"
+					;;
+				not_verified)
+					[ "$PIN_VERIFY_TRIES" -lt "3" ] && { wayOut "4G MODEM - PIN verify count value is $PIN_VERIFY_TRIES this is below the limit of 3" ; }
+					[ -n "$PIN" ] && {
+						uqmiCall "-t 1000 --verify-pin1 $PIN" || uqmiCall "-t 1000 --uim-verify-pin1 $PIN" || { wayOut "4G MODEM - Unable to verify PIN" ; }
+						IS_DONE=1
+					} || {
+						wayOut "4G MODEM - PIN not specified but required"
+					}
+					;;
+				verified)
+					$LOGS "4G MODEM - PIN already verified"
+					IS_DONE=1
+					;;
+				*)
+					wayOut "4G MODEM - PIN status failed (${PIN_STATUS:-sim_not_present})"
+				;;
+			esac
+		fi
 	}
 
-	[ "$IS_PIN" -eq 1 -a "$IS_DONE" -ne 1 ] && {
-		watchdog del
-		wayOut "4G MODEM - SIM locked - connection process terminated!"
+	[ "$IS_DONE" -ne 1 ] && {
+		mwwatchdog del
+		wayOut "4G MODEM - SIM locked: connection process terminated!"
 	} || {
 		$LOGS "4G MODEM - SIM ready"
 	}
@@ -714,14 +826,14 @@ checkPid() {
 
 	[ -f $PIDFILE ] && {
 		PIDNO=$(cat $PIDFILE)
-		cat "/proc/$PIDNO/cmdline" > /dev/null 2>&1
+		cat "/proc/$PIDNO/cmdline" &>/dev/null
 
 		[ $? -eq 0 ] && {
-			$LOGS "4G MODEM - another process in action - exiting"
+			$LOGS "4G MODEM - another process in action: exiting"
 			exit 0
 		} || {
 			[ "$PRIORITY" -eq 0 ] && return
-			# Process not found assume not running
+			# process not found assume not running
 			echo $PID > $PIDFILE
 			[ $? -ne 0 ] && {
 				$LOGS "4G MODEM - could not create PID file"
@@ -742,11 +854,11 @@ uqmiCall() {
 	# for now, it's the only way to prevent uqmi hangups on two different calls at the same time and on the same device: https://forum.openwrt.org/viewtopic.php?id=63559
 	# OPTION: 1 - connect, 2 - background, no option - normal use
 	local COUNT=1 COMMAND="$1" OPTION="$2"
-	[[ -z $OPTION ]] && OPTION=0
+	[ -z "$OPTION" ] && OPTION=0
 
-	# wait for another uqmi process to exit...
-	while [ "$COUNT" -lt 7 ]; do
-		[ "$(ps | grep [u]qmi | grep "$DEVNR" | wc -l)" -eq 0 ] && {
+	# wait for other uqmi process(es) to exit...
+	while [ "$COUNT" -lt 10 ]; do
+		ps | grep [u]qmi || {
 			if [ "$OPTION" -eq 1 ]; then
 				uqmi -s -d "$DEVNR" $COMMAND \
 					${APN:+--apn "$APN"} \
@@ -757,7 +869,7 @@ uqmiCall() {
 					${AUTOCONNECT:+--autoconnect}
 				return
 			elif [ "$OPTION" -eq 2 ]; then
-				uqmi -s -d "$DEVNR" $COMMAND 1> /dev/null &
+				uqmi -s -d "$DEVNR" $COMMAND 1>/dev/null &
 				return
 			else
 				uqmi -s -d "$DEVNR" $COMMAND
@@ -768,16 +880,38 @@ uqmiCall() {
 		sleep 1
 	done
 
-	wayOut "4G Modem - another uqmi process in action (hang up?) - exiting ..."
+	# after 10 seconds, kill process(es) (only one try per running script)
+	[ "$COUNT_KILL" -eq 0 ] && {
+		uqmiKill $COMMAND $OPTION
+	} || {
+		wayOut "4G MODEM - uqmi hangs again: exiting!"
+	}
+}
+
+uqmiKill() {
+	local C="$1" O="$2" UQMIPID="" i
+
+	UQMIPID=$(ps | grep [u]qmi | awk '{print $1}')
+	[ -n "$UQMIPID" ] && {
+		for i in $UQMIPID; do
+			$LOGS "4G MODEM - found another uqmi process (PID: $i), killing ..."
+			kill -9 $UQMIPID
+			sleep 2
+		done
+
+		# try once again
+		COUNT_KILL=1
+		uqmiCall $C $O
+	}
 }
 
 wayOut() {
 	local TEXT="$1"
-	[[ -z $TEXT ]] && TEXT="4G Modem - exiting"
+	[ -z "$TEXT" ] && TEXT="4G Modem - exiting"
 
 	$LOGS "$TEXT"
-	rm -f $READYFILE > /dev/null 2>&1
-	rm -f $PIDFILE > /dev/null 2>&1
+	rm -f $READYFILE &>/dev/null
+	rm -f $PIDFILE &>/dev/null
 	exit 0
 }
 
@@ -800,7 +934,7 @@ elif [ "$2" == "signal" ]; then
 else
 	checkPid 1
 
-	# modem not detected
+	# modem not yet detected
 	[ ! -f $READYFILE ] && {
 		switchMode
 		searchWAN
@@ -815,4 +949,4 @@ else
 	connect
 fi
 
-rm -f $PIDFILE > /dev/null 2>&1
+rm -f $PIDFILE &>/dev/null

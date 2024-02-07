@@ -55,6 +55,10 @@ ifeq ($(TCONFIG_BCMARM),y)
 OBJS += bcmutils.o
 endif
 
+ifeq ($(TCONFIG_BCMWL6),y)
+OBJS += arpreq.o
+endif
+
 ifeq ($(TCONFIG_FANCTRL),y)
 OBJS += phy_tempsense.o
 endif
@@ -88,6 +92,11 @@ endif
 
 ifeq ($(TCONFIG_OPENVPN),y)
 OBJS += openvpn.o
+endif
+
+ifeq ($(TCONFIG_WIREGUARD),y)
+OBJS += wireguard.o
+OBJS += curve25519.o
 endif
 
 ifeq ($(TCONFIG_TINC),y)

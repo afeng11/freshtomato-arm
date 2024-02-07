@@ -3,9 +3,11 @@ export PATH=/bin:/usr/bin:/sbin:/usr/sbin:/home/root:
 #
 # VPN Client selective routing up down script
 #
-# Copyright by pedro 2019 - 2022
+# Copyright by pedro 2019 - 2024
 #
 
+
+. nvram_ops
 
 PID=$$
 IFACE=$dev
@@ -18,10 +20,6 @@ ID="0"
 LOGS="logger -t openvpn-vpnrouting.sh[$PID][$IFACE]"
 [ -d /etc/openvpn/fw ] || mkdir -m 0700 "/etc/openvpn/fw"
 
-
-NV() {
-	nvram get "$1"
-}
 
 find_iface() {
 	# These IDs were intentionally picked to avoid overwriting
@@ -65,9 +63,7 @@ stopRouting() {
 	ip route flush table $ID
 	ip route flush cache
 
-	[ "$(ip rule | grep "lookup $ID" | wc -l)" -gt 0 ] && {
-		ip rule del fwmark $ID/0xf00 table $ID
-	}
+	ip rule | grep "lookup $ID" && ip rule del fwmark $ID/0xf00 table $ID
 
 # BCMARM-BEGIN
 	ipset destroy vpnrouting$ID
@@ -78,7 +74,7 @@ stopRouting() {
 
 	sed -i "s/-A/-D/g" $FIREWALL_ROUTING
 	$FIREWALL_ROUTING
-	rm -f $FIREWALL_ROUTING > /dev/null 2>&1
+	rm -f $FIREWALL_ROUTING &>/dev/null
 
 	sed -i $DNSMASQ_IPSET -e "/vpnrouting$ID/d"
 }
@@ -87,7 +83,7 @@ startRouting() {
 	local DNSMASQ=0 i VAL1 VAL2 VAL3
 
 	stopRouting
-	nvram set vpn_client"${ID#??}"_rdnsmasq=0
+	NS vpn_client"${ID#??}"_rdnsmasq=0
 
 	$LOGS "Starting routing policy for openvpn-$SERVICE - Interface $IFACE - Table $ID"
 
@@ -115,7 +111,7 @@ startRouting() {
 # BCMARMNO-END
 
 	# example of routing_val: 1<2<8.8.8.8<1>1<1<1.2.3.4<0>1<3<domain.com<0> (enabled<type<domain_or_IP<kill_switch>)
-	for i in $(echo "$(NV vpn_"$SERVICE"_routing_val)" | tr ">" "\n"); do
+	for i in $(echo "$(NG vpn_"$SERVICE"_routing_val)" | tr ">" "\n"); do
 		VAL1=$(echo $i | cut -d "<" -f1)
 		VAL2=$(echo $i | cut -d "<" -f2)
 		VAL3=$(echo $i | cut -d "<" -f3)
@@ -152,7 +148,7 @@ startRouting() {
 	RESTART_FW=1
 
 	[ "$DNSMASQ" -eq 1 ] && {
-		nvram set vpn_client"${ID#??}"_rdnsmasq=1
+		NS vpn_client"${ID#??}"_rdnsmasq=1
 		RESTART_DNSMASQ=1
 	}
 
@@ -160,7 +156,7 @@ startRouting() {
 }
 
 checkRestart() {
-	[ "$RESTART_DNSMASQ" -eq 1 -o "$(NV "vpn_client"${ID#??}"_rdnsmasq")" -eq 1 ] && service dnsmasq restart
+	[ "$RESTART_DNSMASQ" -eq 1 -o "$(NG "vpn_client"${ID#??}"_rdnsmasq")" -eq 1 ] && service dnsmasq restart
 	[ "$RESTART_FW" -eq 1 ] && service firewall restart
 }
 
@@ -169,7 +165,7 @@ checkPid() {
 
 	[ -f $PIDFILE ] && {
 		PIDNO=$(cat $PIDFILE)
-		cat "/proc/$PIDNO/cmdline" > /dev/null 2>&1
+		cat "/proc/$PIDNO/cmdline" &>/dev/null
 
 		[ $? -eq 0 ] && {
 			# priority has the last process
@@ -204,7 +200,7 @@ checkPid() {
 
 find_iface
 checkPid
-VPN_REDIR=$(NV vpn_"$SERVICE"_rgw)
+VPN_REDIR=$(NG vpn_"$SERVICE"_rgw)
 
 [ "$script_type" == "route-up" -a "$VPN_REDIR" -lt 2 ] && {
 	$LOGS "Skipping, $SERVICE not in routing policy mode"
@@ -224,6 +220,6 @@ checkRestart
 
 ip route flush cache
 
-rm -f $PIDFILE > /dev/null 2>&1
+rm -f $PIDFILE &>/dev/null
 
 exit 0

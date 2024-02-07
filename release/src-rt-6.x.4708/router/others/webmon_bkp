@@ -3,11 +3,17 @@ export PATH=/bin:/usr/bin:/sbin:/usr/sbin:/home/root:
 #
 # Copyright (C) 2013 shibby
 #
+# - changes/fixes
+# Copyright (C) 2018 - 2024 by pedro
+#
+
+
+. nvram_ops
 
 # only if enabled
-[ "$(nvram get log_wm)" -eq 1 -a "$(nvram get webmon_bkp)" -eq 1 ] && {
+[ "$(NG log_wm)" -eq 1 -a "$(NG webmon_bkp)" -eq 1 ] && {
 
-	BKP_DIR=$(nvram get webmon_dir)
+	BKP_DIR=$(NG webmon_dir)
 	DATA=$(date +%Y%m%d_%H%M)
 	ACTION=$1
 
@@ -24,36 +30,36 @@ export PATH=/bin:/usr/bin:/sbin:/usr/sbin:/home/root:
 		}
 
 		[ -f "$BKP_DIR/webmon_recent_domains" -o -f "$BKP_DIR/webmon_recent_searches" ] && {
-			echo "" > /dev/null 2>&1
+			echo "" &>/dev/null
 		} || {
 			# make first copy
-			/usr/sbin/webmon_bkp hourly
+			webmon_bkp hourly
 		}
 
 	# make a copy every hour
 	elif [ "$ACTION" == "hourly" ]; then
-		cp /proc/webmon_recent_domains $BKP_DIR/webmon_recent_domains > /dev/null 2>&1
-		cp /proc/webmon_recent_searches $BKP_DIR/webmon_recent_searches > /dev/null 2>&1
+		cp /proc/webmon_recent_domains $BKP_DIR/webmon_recent_domains &>/dev/null
+		cp /proc/webmon_recent_searches $BKP_DIR/webmon_recent_searches &>/dev/null
 	else
 		LOGS="logger -t Webmon-Backup"
 
 		# try create a file (check directory rw permission)
-		touch $BKP_DIR/$DATA > /dev/null 2>&1
+		touch $BKP_DIR/$DATA &>/dev/null
 
 		# directory exists and is writable
 		[ -f "$BKP_DIR/$DATA" ] && {
 			rm $BKP_DIR/$DATA
 
 			cat $BKP_DIR/webmon_recent_domains | awk '{t=$1; "date -d @\""t"\" \"+%Y-%m-%d %H:%M:%S\"" | getline d;print d"\t"$2"\t"$3 }' >> $BKP_DIR/domain-$DATA.log
-			tar -czf $BKP_DIR/domain-$DATA.log.tar.gz $BKP_DIR/domain-$DATA.log > /dev/null 2>&1
+			tar -czf $BKP_DIR/domain-$DATA.log.tar.gz $BKP_DIR/domain-$DATA.log &>/dev/null
 			rm $BKP_DIR/domain-$DATA.log
 
 			cat $BKP_DIR/webmon_recent_searches | awk '{t=$1; "date -d @\""t"\" \"+%Y-%m-%d %H:%M:%S\"" | getline d;print d"\t"$2"\t"$3 }' >> $BKP_DIR/search-$DATA.log
-			tar -czf $BKP_DIR/search-$DATA.log.tar.gz $BKP_DIR/search-$DATA.log > /dev/null 2>&1
+			tar -czf $BKP_DIR/search-$DATA.log.tar.gz $BKP_DIR/search-$DATA.log &>/dev/null
 			rm $BKP_DIR/search-$DATA.log
 
 			[ -f "$BKP_DIR/domain-$DATA.log.tar.gz" -a -f "$BKP_DIR/search-$DATA.log.tar.gz" ] && {
-				[ "$(nvram get webmon_shrink)" -eq 1 ] && {
+				[ "$(NG webmon_shrink)" -eq 1 ] && {
 					iptables -t filter -A monitor -p tcp -m webmon --clear_search --clear_domain
 
 					# restart firewall to reload monitor rules
@@ -64,7 +70,7 @@ export PATH=/bin:/usr/bin:/sbin:/usr/sbin:/home/root:
 					$LOGS "Backup finished."
 				}
 				# make clean copy
-				/usr/sbin/webmon_bkp hourly
+				webmon_bkp hourly
 			} || {
 				$LOGS "Failed: Something goes wrong. Backup was not created!"
 			}

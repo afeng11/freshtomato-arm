@@ -1,13 +1,13 @@
 #!/bin/sh
 
-export PATH=/opt/sbin:/opt/bin:$PATH
+export PATH=/bin:/usr/bin:/sbin:/usr/sbin:/home/root:/opt/bin:/opt/sbin
 unset LD_LIBRARY_PATH
 unset LD_PRELOAD
 # STUBBYNO-BEGIN
-WGET="/usr/bin/wget --no-check-certificate"
+WGET="wget --no-check-certificate"
 # STUBBYNO-END
 # STUBBY-BEGIN
-WGET="/usr/bin/wget"
+WGET="wget"
 # STUBBY-END
 
 URL=http://pkg.entware.net/binaries/mipsel/installer
@@ -46,7 +46,7 @@ dl $URL/rc.unslung /opt/etc/init.d/rc.unslung x
 echo "Info: Basic packages installation..."
 /opt/bin/opkg update
 /opt/bin/opkg install ldconfig findutils
-/opt/sbin/ldconfig > /dev/null 2>&1
+/opt/sbin/ldconfig &>/dev/null
 [ -f /etc/TZ ] && ln -sf /etc/TZ /opt/etc/TZ
 
 cat << EOF
